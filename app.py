@@ -16,17 +16,36 @@ LINE_CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
 line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
 
-# ===== 你的固定測試 ID =====
+# ===== 固定測試 ID =====
 USER_ID = "Ud09e90892377bf2b5bef3eada8d22b5e"
 
-
 # ========================
-# 基本首頁
+# 首頁
 # ========================
 @app.route("/", methods=["GET"])
 def home():
     return "Bey Radar is running 🌀"
 
+
+# ========================
+# 🔔 推播測試
+# ========================
+@app.route("/test_push", methods=["GET"])
+def test_push():
+    try:
+        line_bot_api.push_message(
+            USER_ID,
+            TextSendMessage(text="🛰️ 推播測試成功！")
+        )
+        return "push sent"
+
+    except Exception as e:
+        return f"push error: {str(e)}", 500
+
+
+# ========================
+# 🧪 Threads 爬蟲測試（A方案）
+# ========================
 @app.route("/crawl_test", methods=["GET"])
 def crawl_test():
 
@@ -52,6 +71,7 @@ def crawl_test():
 
     except Exception as e:
         return f"crawl error: {str(e)}", 500
+
 
 # ========================
 # LINE webhook
@@ -82,54 +102,6 @@ def handle_message(event):
         event.reply_token,
         TextSendMessage(text=reply)
     )
-
-
-# ========================
-# 🔔 LINE 推播測試
-# ========================
-@app.route("/test_push", methods=["GET"])
-def test_push():
-
-    try:
-        line_bot_api.push_message(
-            USER_ID,
-            TextSendMessage(text="🛰️ 推播測試成功！")
-        )
-        return "push sent"
-
-    except Exception as e:
-        return f"push error: {str(e)}", 500
-
-
-# ========================
-# 🕷️ Threads 爬蟲測試
-# ========================
-@app.route("/crawl_test", methods=["GET"])
-def crawl_test():
-
-    try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            page = browser.new_page()
-
-            page.goto("https://www.threads.net/", timeout=60000)
-
-            content = page.content()
-
-            browser.close()
-
-        # 只取前面避免 LINE 爆字數
-        preview = content[:800]
-
-        line_bot_api.push_message(
-            USER_ID,
-            TextSendMessage(text="🕷️ Threads 爬蟲完成：\n\n" + preview)
-        )
-
-        return "crawl sent"
-
-    except Exception as e:
-        return f"crawl error: {str(e)}", 500
 
 
 # ========================
