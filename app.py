@@ -15,8 +15,8 @@ print("TOKEN =", LINE_CHANNEL_ACCESS_TOKEN)
 line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
 
-# 👉 你要推播的 USER_ID（之後會從 log 拿）
-USER_ID = "請填你的LINE_USER_ID"
+# 👉 暫存 user_id（不用手動填）
+USER_ID = None
 
 
 @app.route("/", methods=["GET"])
@@ -27,8 +27,8 @@ def home():
 @app.route("/test_push", methods=["GET"])
 def test_push():
     try:
-        print("USER_ID =", USER_ID)
-        print("TOKEN OK =", bool(LINE_CHANNEL_ACCESS_TOKEN))
+        if not USER_ID:
+            return "❌ USER_ID 還沒被設定（請先傳訊息給 bot）", 400
 
         line_bot_api.push_message(
             USER_ID,
@@ -57,7 +57,17 @@ def webhook():
 
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
+    global USER_ID
+
+    print("========== DEBUG ==========")
+    print("TYPE =", event.source.type)
+    print("SOURCE =", event.source)
     print("USER_ID =", event.source.user_id)
+    print("===========================")
+
+    # 👉 自動記錄 user_id（重點修正）
+    if event.source.type == "user":
+        USER_ID = event.source.user_id
 
     text = event.message.text
 
@@ -75,5 +85,3 @@ def handle_message(event):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
-
-print("SOURCE TYPE =", event.source.type)
