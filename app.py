@@ -27,6 +27,31 @@ USER_ID = "Ud09e90892377bf2b5bef3eada8d22b5e"
 def home():
     return "Bey Radar is running 🌀"
 
+@app.route("/crawl_test", methods=["GET"])
+def crawl_test():
+
+    try:
+        url = "https://www.threads.net/"
+        headers = {
+            "User-Agent": "Mozilla/5.0"
+        }
+
+        res = requests.get(url, headers=headers, timeout=10)
+
+        soup = BeautifulSoup(res.text, "html.parser")
+        text = soup.get_text()
+
+        preview = text[:800]
+
+        line_bot_api.push_message(
+            USER_ID,
+            TextSendMessage(text="🧪 Threads 測試抓取成功：\n\n" + preview)
+        )
+
+        return "crawl ok"
+
+    except Exception as e:
+        return f"crawl error: {str(e)}", 500
 
 # ========================
 # LINE webhook
