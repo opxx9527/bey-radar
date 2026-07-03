@@ -57,17 +57,22 @@ def webhook():
 
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
-    global USER_ID
 
     print("========== DEBUG ==========")
     print("TYPE =", event.source.type)
     print("SOURCE =", event.source)
-    print("USER_ID =", event.source.user_id)
-    print("===========================")
 
-    # 👉 自動記錄 user_id（重點修正）
+    # 👉 user / group / room 判斷
     if event.source.type == "user":
-        USER_ID = event.source.user_id
+        print("USER_ID =", event.source.user_id)
+
+    elif event.source.type == "group":
+        print("GROUP_ID =", event.source.group_id)
+
+    elif event.source.type == "room":
+        print("ROOM_ID =", event.source.room_id)
+
+    print("===========================")
 
     text = event.message.text
 
