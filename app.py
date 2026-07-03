@@ -15,9 +15,23 @@ print("TOKEN =", LINE_CHANNEL_ACCESS_TOKEN)
 line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
 
+# 👉 你要推播的 USER_ID（之後會從 log 拿）
+USER_ID = "請填你的LINE_USER_ID"
+
+
 @app.route("/", methods=["GET"])
 def home():
     return "Bey Radar is running 🌀"
+
+
+@app.route("/test_push", methods=["GET"])
+def test_push():
+    line_bot_api.push_message(
+        USER_ID,
+        TextSendMessage(text="🛰️ 陀螺雷達推播測試成功！")
+    )
+    return "push sent"
+
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
@@ -31,9 +45,11 @@ def webhook():
 
     return "OK"
 
+
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
     print("USER_ID =", event.source.user_id)
+
     text = event.message.text
 
     if "哈囉" in text:
@@ -46,14 +62,7 @@ def handle_message(event):
         TextSendMessage(text=reply)
     )
 
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
-
-@app.route("/test_push", methods=["GET"])
-def test_push():
-    line_bot_api.push_message(
-        USER_ID,
-        TextSendMessage(text="🛰️ 陀螺雷達推播測試成功！")
-    )
-    return "push sent"
