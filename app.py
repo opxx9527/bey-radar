@@ -1,5 +1,4 @@
 from apscheduler.schedulers.background import BackgroundScheduler
-import datetime
 from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
@@ -8,6 +7,7 @@ from linebot.models import MessageEvent, TextMessage, TextSendMessage
 import os
 import requests
 from bs4 import BeautifulSoup
+import datetime
 
 app = Flask(__name__)
 
@@ -18,78 +18,61 @@ LINE_CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
 line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
 
-# ===== 固定測試 ID =====
+# ===== 固定測試 USER =====
 USER_ID = "Ud09e90892377bf2b5bef3eada8d22b5e"
 
-# ===== 防重複 =====
-seen_items = set()
+# =========================
+# 🔍 抓比賽新聞（簡化版）
+# =========================
+def fetch_beyblade_news():
+    url = "https://news.google.com/search?q=beyblade%20tournament&hl=zh-TW&gl=TW&ceid=TW:zh-Hant"
+
+    headers = {"User-Agent": "Mozilla/5.0"}
+    res = requests.get(url, headers=headers, timeout=10)
+
+    soup = BeautifulSoup(res.text, "html.parser")
+
+    items = soup.select("article h3")
+
+    news_list = []
+    for i in items[:5]:
+        news_list.append(i.get_text())
+
+    if not news_list:
+        return "目前沒有比賽新聞"
+
+    return "\n".join(news_list)
 
 
-# ========================
-# 🕷️ Threads + Google 比賽掃描
-# ========================
-def crawl_competitions():
-    keywords = ["beyblade tournament", "beyblade 比賽", "tournament", "competition", "報名"]
-
-    found = []
-
-    for kw in keywords:
-        try:
-            url = f"https://www.google.com/search?q=site:threads.net+{kw}"
-            headers = {"User-Agent": "Mozilla/5.0"}
-
-            res = requests.get(url, headers=headers, timeout=10)
-
-            if kw.lower() in res.text.lower():
-                found.append(kw)
-
-        except Exception as e:
-            print("crawl error:", e)
-
-    return found
-
-
-# ========================
+# =========================
 # 🕒 排程任務（核心）
-# ========================
+# =========================
 def job():
-    print("🕒 排程執行中：", datetime.datetime.now())
+    print("🕒 檢查比賽新聞：", datetime.datetime.now())
 
-    keywords = crawl_competitions()
+    try:
+        news = fetch_beyblade_news()
 
-    if not keywords:
-        print("no matches")
-        return
+        line_bot_api.push_message(
+            USER_ID,
+            TextSendMessage(text="🏆 Beyblade 最新比賽新聞：\n\n" + news)
+        )
 
-    for kw in keywords:
-
-        # 去重
-        if kw in seen_items:
-            continue
-
-        seen_items.add(kw)
-
-        try:
-            line_bot_api.push_message(
-                USER_ID,
-                TextSendMessage(text=f"🔥 發現可能比賽訊號：\n\n關鍵字：{kw}")
-            )
-
-        except Exception as e:
-            print("push error:", e)
+    except Exception as e:
+        print("排程錯誤:", str(e))
 
 
-# ========================
+# =========================
 # 首頁
-# ========================
+# =========================
 @app.route("/", methods=["GET"])
 def home():
     return "Bey Radar is running 🌀"
 
 
-# ========================
-# 🔔 推播測試
-# ========================
+# =========================
+# 測試推播
+# =========================
 @app.route("/test_push", methods=["GET"])
 def test_push():
     try:
@@ -98,41 +81,22 @@ def test_push():
             TextSendMessage(text="🛰️ 推播測試成功！")
         )
         return "push sent"
-
     except Exception as e:
-        return f"push error: {str(e)}", 500
+        return f"error: {str(e)}", 500
 
 
-# ========================
-# 🧪 Threads 爬蟲測試（保留）
-# ========================
-@app.route("/crawl_test", methods=["GET"])
-def crawl_test():
-
-    try:
-        url = "https://www.threads.net/"
-        headers = {"User-Agent": "Mozilla/5.0"}
-
-        res = requests.get(url, headers=headers, timeout=10)
-        soup = BeautifulSoup(res.text, "html.parser")
-
-        text = soup.get_text()
-        preview = text[:800]
-
-        line_bot_api.push_message(
-            USER_ID,
-            TextSendMessage(text="🧪 Threads 測試抓取成功：\n\n" + preview)
-        )
-
-        return "crawl ok"
-
-    except Exception as e:
-        return f"crawl error: {str(e)}", 500
+# =========================
+# 手動測試抓新聞
+# =========================
+@app.route("/test_news", methods=["GET"])
+def test_news():
+    news = fetch_beyblade_news()
+    return news
 
 
-# ========================
+# =========================
 # LINE webhook
-# ========================
+# =========================
 @app.route("/webhook", methods=["POST"])
 def webhook():
     signature = request.headers.get("X-Line-Signature")
@@ -150,8 +114,8 @@ def webhook():
 def handle_message(event):
     text = event.message.text
 
-    if "哈囉" in text:
-        reply = "🌀 我是陀螺雷達 Bey Radar"
+    if "新聞" in text:
+        reply = fetch_beyblade_news()
     else:
         reply = f"收到：{text}"
 
@@ -161,17 +125,17 @@ def handle_message(event):
     )
 
 
-# ========================
-# 🚀 排程啟動
-# ========================
+# =========================
+# 🚀 排程啟動（每 5 分鐘）
+# =========================
 scheduler = BackgroundScheduler()
 scheduler.add_job(job, "interval", minutes=5)
 scheduler.start()
 
 
-# ========================
-# 啟動 Flask
-# ========================
+# =========================
+# 啟動
+# =========================
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
