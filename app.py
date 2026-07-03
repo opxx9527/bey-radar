@@ -5,9 +5,8 @@ from linebot.exceptions import InvalidSignatureError
 from linebot.models import MessageEvent, TextMessage, TextSendMessage
 
 import os
-import requests
-from bs4 import BeautifulSoup
 import datetime
+import feedparser
 
 app = Flask(__name__)
 
@@ -18,14 +17,13 @@ LINE_CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
 line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
 
-# ===== 固定測試 USER =====
+# ===== 固定測試 USER_ID =====
 USER_ID = "Ud09e90892377bf2b5bef3eada8d22b5e"
 
-# =========================
-# 🔍 抓比賽新聞（簡化版）
-# =========================
-import feedparser
 
+# =========================
+# 🏆 抓比賽新聞（RSS穩定版）
+# =========================
 def fetch_beyblade_news():
     url = "https://news.google.com/rss/search?q=beyblade+tournament&hl=en-US&gl=US&ceid=US:en"
 
@@ -40,30 +38,13 @@ def fetch_beyblade_news():
         return "目前沒有比賽新聞"
 
     return "\n".join(news_list)
-    url = "https://news.google.com/search?q=beyblade%20tournament&hl=zh-TW&gl=TW&ceid=TW:zh-Hant"
-
-    headers = {"User-Agent": "Mozilla/5.0"}
-    res = requests.get(url, headers=headers, timeout=10)
-
-    soup = BeautifulSoup(res.text, "html.parser")
-
-    items = soup.select("article h3")
-
-    news_list = []
-    for i in items[:5]:
-        news_list.append(i.get_text())
-
-    if not news_list:
-        return "目前沒有比賽新聞"
-
-    return "\n".join(news_list)
 
 
 # =========================
-# 🕒 排程任務（核心）
+# 🕒 排程任務
 # =========================
 def job():
-    print("🕒 檢查比賽新聞：", datetime.datetime.now())
+    print("🕒 排程執行：", datetime.datetime.now())
 
     try:
         news = fetch_beyblade_news()
@@ -101,12 +82,11 @@ def test_push():
 
 
 # =========================
-# 手動測試抓新聞
+# 手動測試新聞
 # =========================
 @app.route("/test_news", methods=["GET"])
 def test_news():
-    news = fetch_beyblade_news()
-    return news
+    return fetch_beyblade_news()
 
 
 # =========================
@@ -141,7 +121,7 @@ def handle_message(event):
 
 
 # =========================
-# 🚀 排程啟動（每 5 分鐘）
+# 🚀 排程（每5分鐘）
 # =========================
 scheduler = BackgroundScheduler()
 scheduler.add_job(job, "interval", minutes=5)
