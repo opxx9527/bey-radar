@@ -62,12 +62,11 @@ def handle_message(event):
 
 @app.route("/test_push", methods=["GET"])
 def test_push():
-    if not USER_ID:
-        return "還沒有 user_id（請先在 LINE 傳訊息）", 400
+    user_id = "Ud09e90892377bf2b5bef3eada8d22b5e"
 
     line_bot_api.push_message(
-        USER_ID,
-        TextSendMessage(text="🛰️ 陀螺雷達推播測試成功！")
+        user_id,
+        TextSendMessage(text="🛰️ 推播測試成功！")
     )
 
     return "push sent"
