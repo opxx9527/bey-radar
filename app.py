@@ -60,16 +60,33 @@ def handle_message(event):
     )
 
 
+from playwright.sync_api import sync_playwright
+
+
 @app.route("/test_push", methods=["GET"])
 def test_push():
     user_id = "Ud09e90892377bf2b5bef3eada8d22b5e"
 
+    # 👉 LINE 推播測試
     line_bot_api.push_message(
         user_id,
         TextSendMessage(text="🛰️ 推播測試成功！")
     )
 
-    return "push sent"
+    # 👉 Threads 測試抓取
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page()
+
+        page.goto("https://www.threads.net/")
+
+        content = page.content()
+
+        browser.close()
+
+    print("THREADS LENGTH =", len(content))
+
+    return "push sent + crawl done"
 
 
 if __name__ == "__main__":
