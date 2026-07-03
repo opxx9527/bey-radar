@@ -19,14 +19,6 @@ handler = WebhookHandler(LINE_CHANNEL_SECRET)
 def home():
     return "Bey Radar is running 🌀"
 
-@app.route("/test_push", methods=["GET"])
-def test_push():
-    line_bot_api.push_message(
-        USER_ID,
-        TextSendMessage(text="🛰️ 陀螺雷達推播測試成功！")
-    )
-    return "push sent"
-
 @app.route("/webhook", methods=["POST"])
 def webhook():
     signature = request.headers.get("X-Line-Signature")
@@ -57,3 +49,11 @@ def handle_message(event):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
+@app.route("/test_push", methods=["GET"])
+def test_push():
+    line_bot_api.push_message(
+        USER_ID,
+        TextSendMessage(text="🛰️ 陀螺雷達推播測試成功！")
+    )
+    return "push sent"
