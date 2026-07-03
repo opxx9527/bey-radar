@@ -21,6 +21,33 @@ handler = WebhookHandler(LINE_CHANNEL_SECRET)
 # ===== 固定測試 ID =====
 USER_ID = "Ud09e90892377bf2b5bef3eada8d22b5e"
 
+# ===== 防重複 =====
+seen_items = set()
+
+
+# ========================
+# 🕷️ Threads + Google 比賽掃描
+# ========================
+def crawl_competitions():
+    keywords = ["beyblade tournament", "beyblade 比賽", "tournament", "competition", "報名"]
+
+    found = []
+
+    for kw in keywords:
+        try:
+            url = f"https://www.google.com/search?q=site:threads.net+{kw}"
+            headers = {"User-Agent": "Mozilla/5.0"}
+
+            res = requests.get(url, headers=headers, timeout=10)
+
+            if kw.lower() in res.text.lower():
+                found.append(kw)
+
+        except Exception as e:
+            print("crawl error:", e)
+
+    return found
+
 
 # ========================
 # 🕒 排程任務（核心）
@@ -28,13 +55,28 @@ USER_ID = "Ud09e90892377bf2b5bef3eada8d22b5e"
 def job():
     print("🕒 排程執行中：", datetime.datetime.now())
 
-    try:
-        line_bot_api.push_message(
-            USER_ID,
-            TextSendMessage(text="⏰ 排程測試：系統正常運作")
-        )
-    except Exception as e:
-        print("排程錯誤:", str(e))
+    keywords = crawl_competitions()
+
+    if not keywords:
+        print("no matches")
+        return
+
+    for kw in keywords:
+
+        # 去重
+        if kw in seen_items:
+            continue
+
+        seen_items.add(kw)
+
+        try:
+            line_bot_api.push_message(
+                USER_ID,
+                TextSendMessage(text=f"🔥 發現可能比賽訊號：\n\n關鍵字：{kw}")
+            )
+
+        except Exception as e:
+            print("push error:", e)
 
 
 # ========================
@@ -62,7 +104,7 @@ def test_push():
 
 
 # ========================
-# 🧪 Threads 爬蟲測試（A方案）
+# 🧪 Threads 爬蟲測試（保留）
 # ========================
 @app.route("/crawl_test", methods=["GET"])
 def crawl_test():
@@ -72,10 +114,9 @@ def crawl_test():
         headers = {"User-Agent": "Mozilla/5.0"}
 
         res = requests.get(url, headers=headers, timeout=10)
-
         soup = BeautifulSoup(res.text, "html.parser")
-        text = soup.get_text()
 
+        text = soup.get_text()
         preview = text[:800]
 
         line_bot_api.push_message(
@@ -121,7 +162,7 @@ def handle_message(event):
 
 
 # ========================
-# 🚀 啟動排程（重點）
+# 🚀 排程啟動
 # ========================
 scheduler = BackgroundScheduler()
 scheduler.add_job(job, "interval", minutes=5)
