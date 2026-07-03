@@ -1,4 +1,4 @@
 flask
 gunicorn
 line-bot-sdk
-playwright
+playwright==1.61.0
