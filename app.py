@@ -24,7 +24,22 @@ USER_ID = "Ud09e90892377bf2b5bef3eada8d22b5e"
 # =========================
 # 🔍 抓比賽新聞（簡化版）
 # =========================
+import feedparser
+
 def fetch_beyblade_news():
+    url = "https://news.google.com/rss/search?q=beyblade+tournament&hl=en-US&gl=US&ceid=US:en"
+
+    feed = feedparser.parse(url)
+
+    news_list = []
+
+    for entry in feed.entries[:5]:
+        news_list.append(entry.title)
+
+    if not news_list:
+        return "目前沒有比賽新聞"
+
+    return "\n".join(news_list)
     url = "https://news.google.com/search?q=beyblade%20tournament&hl=zh-TW&gl=TW&ceid=TW:zh-Hant"
 
     headers = {"User-Agent": "Mozilla/5.0"}
