@@ -9,37 +9,16 @@ app = Flask(__name__)
 LINE_CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET")
 LINE_CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
 
-print("SECRET =", LINE_CHANNEL_SECRET)
-print("TOKEN =", LINE_CHANNEL_ACCESS_TOKEN)
-
 line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
 
-# 👉 暫存 user_id（不用手動填）
+# 👉 先暫存 user_id（之後才可以 push）
 USER_ID = None
 
 
 @app.route("/", methods=["GET"])
 def home():
     return "Bey Radar is running 🌀"
-
-
-@app.route("/test_push", methods=["GET"])
-def test_push():
-    try:
-        if not USER_ID:
-            return "❌ USER_ID 還沒被設定（請先傳訊息給 bot）", 400
-
-        line_bot_api.push_message(
-            USER_ID,
-            TextSendMessage(text="🛰️ 陀螺雷達推播測試成功！")
-        )
-
-        return "push sent"
-
-    except Exception as e:
-        print("ERROR =", str(e))
-        return f"error: {str(e)}", 500
 
 
 @app.route("/webhook", methods=["POST"])
@@ -57,22 +36,16 @@ def webhook():
 
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
+    global USER_ID
 
     print("========== DEBUG ==========")
     print("TYPE =", event.source.type)
     print("SOURCE =", event.source)
-
-    # 👉 user / group / room 判斷
-    if event.source.type == "user":
-        print("USER_ID =", event.source.user_id)
-
-    elif event.source.type == "group":
-        print("GROUP_ID =", event.source.group_id)
-
-    elif event.source.type == "room":
-        print("ROOM_ID =", event.source.room_id)
-
+    print("USER_ID =", event.source.user_id)
     print("===========================")
+
+    # 👉 記住 user_id
+    USER_ID = event.source.user_id
 
     text = event.message.text
 
@@ -85,6 +58,19 @@ def handle_message(event):
         event.reply_token,
         TextSendMessage(text=reply)
     )
+
+
+@app.route("/test_push", methods=["GET"])
+def test_push():
+    if not USER_ID:
+        return "還沒有 user_id（請先在 LINE 傳訊息）", 400
+
+    line_bot_api.push_message(
+        USER_ID,
+        TextSendMessage(text="🛰️ 陀螺雷達推播測試成功！")
+    )
+
+    return "push sent"
 
 
 if __name__ == "__main__":
