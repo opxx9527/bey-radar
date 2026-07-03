@@ -33,6 +33,7 @@ def webhook():
 
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
+    print("USER_ID =", event.source.user_id)
     text = event.message.text
 
     if "哈囉" in text:
