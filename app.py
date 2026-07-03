@@ -26,11 +26,20 @@ def home():
 
 @app.route("/test_push", methods=["GET"])
 def test_push():
-    line_bot_api.push_message(
-        USER_ID,
-        TextSendMessage(text="🛰️ 陀螺雷達推播測試成功！")
-    )
-    return "push sent"
+    try:
+        print("USER_ID =", USER_ID)
+        print("TOKEN OK =", bool(LINE_CHANNEL_ACCESS_TOKEN))
+
+        line_bot_api.push_message(
+            USER_ID,
+            TextSendMessage(text="🛰️ 陀螺雷達推播測試成功！")
+        )
+
+        return "push sent"
+
+    except Exception as e:
+        print("ERROR =", str(e))
+        return f"error: {str(e)}", 500
 
 
 @app.route("/webhook", methods=["POST"])
