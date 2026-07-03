@@ -21,6 +21,22 @@ handler = WebhookHandler(LINE_CHANNEL_SECRET)
 # ===== 固定測試 ID =====
 USER_ID = "Ud09e90892377bf2b5bef3eada8d22b5e"
 
+
+# ========================
+# 🕒 排程任務（核心）
+# ========================
+def job():
+    print("🕒 排程執行中：", datetime.datetime.now())
+
+    try:
+        line_bot_api.push_message(
+            USER_ID,
+            TextSendMessage(text="⏰ 排程測試：系統正常運作")
+        )
+    except Exception as e:
+        print("排程錯誤:", str(e))
+
+
 # ========================
 # 首頁
 # ========================
@@ -53,9 +69,7 @@ def crawl_test():
 
     try:
         url = "https://www.threads.net/"
-        headers = {
-            "User-Agent": "Mozilla/5.0"
-        }
+        headers = {"User-Agent": "Mozilla/5.0"}
 
         res = requests.get(url, headers=headers, timeout=10)
 
@@ -107,7 +121,15 @@ def handle_message(event):
 
 
 # ========================
-# 啟動
+# 🚀 啟動排程（重點）
+# ========================
+scheduler = BackgroundScheduler()
+scheduler.add_job(job, "interval", minutes=5)
+scheduler.start()
+
+
+# ========================
+# 啟動 Flask
 # ========================
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
