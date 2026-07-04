@@ -77,12 +77,10 @@ def search_threads_via_scraper(query):
                 
             if response.status_code == 200:
                 data = response.json()
-                # 如果回傳寫著 endpoint不存在，代表這個網址不對，換下一個
                 if isinstance(data, dict) and "message" in data and "does not exist" in data["message"]:
                     last_error = data["message"]
                     continue
                 
-                # 走到這裡代表網址對了且成功拿到資料！
                 success_url = url
                 break
             else:
@@ -91,11 +89,9 @@ def search_threads_via_scraper(query):
             last_error = str(e)
             continue
 
-    # 如果所有網址都失敗了
     if not data:
         return [{KEY_ERR: f"嘗試了所有可能的搜尋路徑皆失敗。最後一個錯誤：{last_error}"}]
         
-    # 欄位解析邏輯
     results = []
     posts = []
     if isinstance(data, list):
@@ -111,54 +107,4 @@ def search_threads_via_scraper(query):
                 posts = inner_data.get("results", []) or inner_data.get("posts", [])
     
     if not posts and isinstance(data, dict):
-        return [{KEY_DBRAW: json.dumps(data)[:500]}]
-
-    for p in posts[:5]:
-        post_text = p.get("text") or p.get("caption", {}).get("text", "") or p.get("snippet", "")
-        post_id = p.get("id") or p.get("code") or p.get("post_id")
-        
-        if post_id and post_text:
-            results.append({
-                "title": "Threads 即時情報",
-                "snippet": post_text,
-                "url": f"https://www.threads.net/post/{post_id}"
-            })
-            
-    return results
-
-# ======================
-# AI 解析貼文資訊 (Gemini)
-# ======================
-def parse_post_with_ai(title, snippet):
-    if not GEMINI_API_KEY:
-        return None
-    current_time = datetime.now().strftime('%Y-%m-%d %H:%M')
-    prompt = f"你是一個專門分析戰鬥陀螺比賽資訊的 AI 助手。現在時間是：{current_time}。請閱讀以下 Threads 貼文，標題：{title}，內容：{snippet}。請擷取比賽資訊，並以嚴格的 JSON 格式回傳，不要加入任何 markdown 標籤，只要純 JSON 字串。格式如下：{{\"is_valid_tournament\": true, \"match_time\": \"比賽時間\", \"location\": \"地點\", \"capacity\": \"人數\", \"fee\": \"報名費\", \"deadline\": \"報名截止時間\", \"is_expired\": false}}。"
-    
-    try:
-        response = model.generate_content(prompt)
-        text = response.text.strip()
-        
-        tb = '`' + '`' + '`'
-        if text.startswith(tb + "json"):
-            text = text[len(tb)+4 : -len(tb)].strip()
-        elif text.startswith(tb):
-            text = text[len(tb) : -len(tb)].strip()
-            
-        return json.loads(text)
-    except Exception as e:
-        return None
-
-# ======================
-# 核心監控主邏輯
-# ======================
-def scan_and_notify():
-    conn = sqlite3.connect('seen_urls.db')
-    c = conn.cursor()
-    
-    queries = ["台南戰鬥陀螺", "台南陀螺比賽"]
-    new_tournaments = []
-
-    for q in queries:
-        results = search_threads_via_scraper(q)
-        for r in results
+        return
