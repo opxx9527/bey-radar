@@ -23,7 +23,6 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
 
-# 設定 Gemini AI
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
     model = genai.GenerativeModel('gemini-1.5-flash')
@@ -41,7 +40,7 @@ def init_db():
 init_db()
 
 # ======================
-# SerpApi 搜尋 (鎖定 Threads)
+# SerpApi 搜尋 (加深搜查量到 10 筆)
 # ======================
 def google_search_threads(query):
     if not SERPAPI_KEY:
@@ -49,7 +48,8 @@ def google_search_threads(query):
         return []
         
     search_query = f"site:threads.net {query}"
-    url = f"https://serpapi.com/search.json?q={search_query}&api_key={SERPAPI_KEY}&num=5&hl=zh-tw&gl=tw"
+    # num=10 讓搜尋引擎挖深一點，避免被大店家的日常公告擠掉
+    url = f"https://serpapi.com/search.json?q={search_query}&api_key={SERPAPI_KEY}&num=10&hl=zh-tw&gl=tw"
     
     try:
         res = requests.get(url, timeout=10).json()
@@ -99,12 +99,12 @@ def scan_and_notify():
     conn = sqlite3.connect('seen_urls.db')
     c = conn.cursor()
 
+    # 納入最精準的精準關鍵字與標籤特徵
     queries = [
-        "台南 戰鬥陀螺", 
-        "台南 戰陀", 
-        "台南 Beyblade X", 
-        "台南 BXB",
-        "台南 陀螺 比賽"
+        "台南 澀谷爆刃盃",
+        "台南 爆刃盃",
+        "#台南戰鬥陀螺",
+        "台南 戰鬥陀螺 比賽"
     ]
     
     new_tournaments = []
@@ -123,7 +123,6 @@ def scan_and_notify():
             
             c.execute("INSERT INTO urls (url) VALUES (?)", (url,))
             
-            # 這裡完全補齊，絕對不會再斷掉
             if info:
                 if info.get("is_valid_tournament") and not info.get("is_expired"):
                     msg = (
@@ -171,16 +170,21 @@ def handle_message(event):
     text = event.message.text
     
     if "除錯" in text:
-        raw_results = google_search_threads("台南 戰鬥陀螺")
+        # 除錯模式直接對準最精準的詞，抓 10 筆生肉
+        raw_results = google_search_threads("台南 澀谷爆刃盃")
         
         if not raw_results:
-            reply = "⚠️ 糟糕！SerpApi 透過 Google 完全搜不到任何 Threads 貼文，這代表 Google 目前沒有收錄相關資料。"
+            # 備用方案：搜尋標籤
+            raw_results = google_search_threads("#台南戰鬥陀螺")
+            
+        if not raw_results:
+            reply = "⚠️ 糟糕！SerpApi 連精準關鍵字都搜不到，這代表 Google 還沒把這篇 Threads 收錄到搜尋索引中（Threads 防爬蟲很常導致收錄延遲）。"
         else:
             debug_msgs = []
-            for idx, r in enumerate(raw_results[:3]):
+            for idx, r in enumerate(raw_results[:4]): # 多顯示幾筆
                 debug_msgs.append(f"🔍【原始抓取 {idx+1}】\n標題: {r['title']}\n片段: {r['snippet']}\n網址: {r['url']}")
             
-            reply = "🛠️ 【除錯模式：以下是 Google 抓到的生肉資料】\n\n" + "\n\n---\n\n".join(debug_msgs)
+            reply = "🛠️ 【精準除錯模式：以下是 Google 挖深的生肉資料】\n\n" + "\n\n---\n\n".join(debug_msgs)
             
     elif "搜尋" in text:
         count = scan_and_notify()
@@ -195,13 +199,3 @@ def handle_message(event):
 # ======================
 @app.route("/cron/scan", methods=["GET"])
 def cron_scan():
-    count = scan_and_notify()
-    return f"Scanned Threads. Found {count} new items."
-
-@app.route("/", methods=["GET"])
-def home():
-    return "Bey Radar V3.4 (Syntax Fixed) is alive! 🤖"
-
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
