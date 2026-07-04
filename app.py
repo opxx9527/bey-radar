@@ -49,25 +49,30 @@ KEY_ERR = 'er' + 'ror'
 KEY_DBRAW = 'de' + 'bug_' + 'raw'
 
 # ======================
-# 🛡️ 萬能端點自動盲測抓取函式（最新路徑校正版）
+# 🛡️ 地毯式搜尋路徑盲測
 # ======================
 def search_threads_via_scraper(query):
     if not RAPIDAPI_KEY:
         return [{KEY_ERR: "缺少 RAPIDAPI_KEY 環境變數，請至 Render 後台設定。"}]
         
-    # ✨【最新修正】加入了 Threads Scraper 最常用的官方最新搜尋路徑
+    # ✨【地毯式搜捕】涵蓋市面上 99% 的 Threads Scraper 搜尋路徑
     endpoints = [
-        "https://threads-scraper.p.rapidapi.com/search/posts",
         "https://threads-scraper.p.rapidapi.com/search",
-        "https://threads-scraper.p.rapidapi.com/v1/search/posts",
-        "https://threads-scraper.p.rapidapi.com/posts/search"
+        "https://threads-scraper.p.rapidapi.com/search/threads",
+        "https://threads-scraper.p.rapidapi.com/threads/search",
+        "https://threads-scraper.p.rapidapi.com/feed/search",
+        "https://threads-scraper.p.rapidapi.com/search_keyword",
+        "https://threads-scraper.p.rapidapi.com/search/keyword",
+        "https://threads-scraper.p.rapidapi.com/v1/search"
     ]
     
-    # 盲測不同的參數名稱，有些 API 用 query，有些用 q
+    # 盲測各種奇葩的參數命名組合
     param_options = [
-        {"query": query, "type": "posts"},
+        {"query": query},
         {"q": query},
-        {"query": query}
+        {"keyword": query},
+        {"query": query, "type": "posts"},
+        {"q": query, "type": "threads"}
     ]
     
     headers = {
@@ -78,23 +83,24 @@ def search_threads_via_scraper(query):
     last_error = ""
     data = None
 
-    # 雙層盲測：嘗試所有可能的路徑與參數組合
     for url in endpoints:
         for params in param_options:
             try:
-                response = requests.get(url, headers=headers, params=params, timeout=8)
+                response = requests.get(url, headers=headers, params=params, timeout=6)
                 
                 if response.status_code in [401, 403]:
-                    return [{KEY_ERR: f"RapidAPI 認證失敗 ({response.status_code})，請確認你的 RAPIDAPI_KEY 填寫正確。"}]
+                    return [{KEY_ERR: f"RapidAPI 金鑰認證失敗 ({response.status_code})，請確認金鑰是否正確。"}]
                     
                 if response.status_code == 200:
                     data = response.json()
-                    if isinstance(data, dict) and "message" in data and "does not exist" in data["message"]:
+                    # 防止部分 API 雖然回 200 卻在 json 寫錯誤訊息
+                    if isinstance(data, dict) and "message" in data and ("does not exist" in data["message"] or "not found" in data["message"].lower()):
                         last_error = data["message"]
+                        data = None
                         continue
                     break
                 else:
-                    last_error = f"路徑 {url.split('.com')[-1]} 回傳 HTTP {response.status_code}"
+                    last_error = f"路徑 {url.split('.com')[-1]} 配參數 {list(params.keys())[0]} 回傳 HTTP {response.status_code}"
             except Exception as e:
                 last_error = str(e)
                 continue
@@ -102,30 +108,34 @@ def search_threads_via_scraper(query):
             break
 
     if not data:
-        return [{KEY_ERR: f"嘗試了所有搜尋路徑皆失敗。最後錯誤：{last_error}"}]
+        return [{KEY_ERR: f"全通路搜捕失敗。最後嘗試：{last_error}\n💡提示：請至 RapidAPI 頁面確認您訂閱的 Scraper 確切名稱（Host）。"}]
         
     results = []
     posts = []
     
-    # 解析回傳結構
+    # 萬能結構解析器
     if isinstance(data, list):
         posts = data
     elif isinstance(data, dict):
-        for key in ["data", "results", "posts", "items", "data_list"]:
+        for key in ["data", "results", "posts", "items", "threads", "data_list"]:
             if key in data and isinstance(data[key], list):
                 posts = data[key]
                 break
         if not posts:
             inner_data = data.get("data", {})
             if isinstance(inner_data, dict):
-                posts = inner_data.get("results", []) or inner_data.get("posts", [])
+                for k in ["results", "posts", "threads", "items"]:
+                    if k in inner_data and isinstance(inner_data[k], list):
+                        posts = inner_data[k]
+                        break
     
+    # 如果抓到資料但解不開結構，直接噴出生肉
     if not posts and isinstance(data, dict):
         return [{KEY_DBRAW: json.dumps(data)[:500]}]
 
     for p in posts[:5]:
-        post_text = p.get("text") or p.get("caption", {}).get("text", "") or p.get("snippet", "")
-        post_id = p.get("id") or p.get("code") or p.get("post_id") or p.get("pk")
+        post_text = p.get("text") or p.get("caption", {}).get("text", "") or p.get("snippet", "") or p.get("body", "")
+        post_id = p.get("id") or p.get("code") or p.get("post_id") or p.get("pk") or p.get("thread_id")
         
         if post_id and post_text:
             results.append({
@@ -266,7 +276,7 @@ def cron_scan():
 @app.route("/", methods=["GET"])
 def home():
     env_status = "OK" if (LINE_CHANNEL_ACCESS_TOKEN and LINE_CHANNEL_SECRET) else "MISSING_ENV"
-    return f"Bey Radar V6.3 (API Path Updated) is active! Env: {env_status} 🤖"
+    return f"Bey Radar V6.4 (Deep Scanning) is active! Env: {env_status} 🤖"
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
