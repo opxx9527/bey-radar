@@ -14,8 +14,7 @@ app = Flask(__name__)
 # ======================
 LINE_CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET")
 LINE_CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
-GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY") # 新增：Google API 金鑰
-GOOGLE_CX = os.environ.get("GOOGLE_CX")           # 新增：Google 搜尋引擎 ID
+SERPAPI_KEY = os.environ.get("SERPAPI_KEY") # 改用 SerpApi 金鑰
 
 line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
@@ -33,26 +32,28 @@ def init_db():
 init_db()
 
 # ======================
-# Google Custom Search API
+# SerpApi 搜尋 (取代原本的 Google API)
 # ======================
 def google_search_api(query):
-    if not GOOGLE_API_KEY or not GOOGLE_CX:
-        print("⚠️ 缺少 Google API 變數")
+    if not SERPAPI_KEY:
+        print("⚠️ 缺少 SERPAPI_KEY")
         return []
         
-    url = f"https://www.googleapis.com/customsearch/v1?q={query}&key={GOOGLE_API_KEY}&cx={GOOGLE_CX}&num=5"
+    # hl=zh-tw (繁體中文), gl=tw (台灣地區)
+    url = f"https://serpapi.com/search.json?q={query}&api_key={SERPAPI_KEY}&num=5&hl=zh-tw&gl=tw"
     
     try:
         res = requests.get(url, timeout=10).json()
         results = []
-        for item in res.get("items", []):
+        # SerpApi 會把自然搜尋結果放在 organic_results 裡
+        for item in res.get("organic_results", []):
             results.append({
-                "title": item.get("title"),
-                "url": item.get("link")
+                "title": item.get("title", ""),
+                "url": item.get("link", "")
             })
         return results
     except Exception as e:
-        print("Google API 錯誤:", e)
+        print("SerpApi 錯誤:", e)
         return []
 
 # ======================
@@ -66,7 +67,7 @@ def is_relevant(text):
 # 核心掃描與廣播任務
 # ======================
 def scan_and_notify():
-    print("🔍 scanning via API...")
+    print("🔍 scanning via SerpApi...")
     conn = sqlite3.connect('seen_urls.db')
     c = conn.cursor()
 
@@ -132,7 +133,7 @@ def handle_message(event):
         count = scan_and_notify()
         reply = f"🔍 掃描完畢！共找到 {count} 筆新賽事（已推播）。"
     elif "列表" in text:
-        reply = "目前系統已啟動 V2 雷達 🛰️ (廣播模式)"
+        reply = "目前系統已啟動 V2 雷達 🛰️ (SerpApi 全網廣播模式)"
     else:
         reply = "指令：\n搜尋 台南\n列表"
 
@@ -154,7 +155,7 @@ def cron_scan():
 # ======================
 @app.route("/", methods=["GET"])
 def home():
-    return "Bey Radar V2 is alive! 🛰️"
+    return "Bey Radar V2 (SerpApi) is alive! 🛰️"
 
 # ======================
 # 啟動
