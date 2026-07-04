@@ -55,7 +55,6 @@ def search_threads_via_scraper(query):
     if not RAPIDAPI_KEY:
         return [{KEY_ERR: "缺少 RAPIDAPI_KEY 環境變數，請至 Render 後台設定。"}]
         
-    # 精準對齊用戶提供的 curl 門牌路徑
     url = "https://threads-scraper.p.rapidapi.com/api/v1/users/search"
     querystring = {"query": query}
     
@@ -80,7 +79,6 @@ def search_threads_via_scraper(query):
     results = []
     users = []
     
-    # 解析使用者列表結構
     if isinstance(data, list):
         users = data
     elif isinstance(data, dict):
@@ -93,11 +91,9 @@ def search_threads_via_scraper(query):
             if isinstance(inner_data, dict):
                 users = inner_data.get("users", []) or inner_data.get("results", [])
 
-    # 如果連使用者結構都解不開，就把生肉吐出來除錯
     if not users and isinstance(data, dict):
         return [{KEY_DBRAW: json.dumps(data)[:500]}]
 
-    # 將搜尋到的核心用戶建立監控錨點
     for u in users[:5]:
         username = u.get("username") or u.get("user", {}).get("username", "")
         full_name = u.get("full_name") or u.get("user", {}).get("full_name", "Threads 陀螺玩家")
@@ -132,7 +128,7 @@ def parse_post_with_ai(title, snippet):
             text = text[len(tb) : -len(tb)].strip()
             
         return json.loads(text)
-    except Exception as e: # ✨【已修復變數名稱】
+    except Exception as e:
         return None
 
 # ======================
@@ -207,4 +203,36 @@ def handle_message(event):
             reply = "⚠️ 診斷回報：Render 後台缺少 LINE 的環境變數。"
         else:
             raw_results = search_threads_via_scraper("戰鬥陀螺")
-            if
+            if raw_results and KEY_ERR in raw_results[0]:
+                reply = f"⚠️ 偵測到連線異常：\n{raw_results[0][KEY_ERR]}"
+            elif raw_results and KEY_DBRAW in raw_results[0]:
+                reply = f"⚙️ 【API 已打通！】回傳結構不符，生肉結構：\n\n{raw_results[0][KEY_DBRAW]}"
+            elif not raw_results:
+                reply = "🟢 通道與金鑰完全正常！目前未偵測到相符的用戶。"
+            else:
+                debug_msgs = []
+                for idx, r in enumerate(raw_results[:3]):
+                    debug_msgs.append(f"🔍【直連成功 {idx+1}】\n帳號: {r['title']}\n簡介: {r['snippet']}")
+                reply = "🛠️ 【精準路徑連線成功！】\n\n" + "\n\n---\n\n".join(debug_msgs)
+            
+    elif "搜尋" in user_text:
+        count = scan_and_notify()
+        reply = f"🔍 帳號雷達掃描完畢！共追蹤到 {count} 個與戰鬥陀螺相關的活躍標的。"
+    else:
+        reply = "輸入「搜尋」手動掃描最新帳號，或輸入「除錯」確認當前直連狀態！"
+
+    line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
+
+@app.route("/cron/scan", methods=["GET"])
+def cron_scan():
+    count = scan_and_notify()
+    return f"Scanned. Found {count} items."
+
+@app.route("/", methods=["GET"])
+def home():
+    env_status = "OK" if (LINE_CHANNEL_ACCESS_TOKEN and LINE_CHANNEL_SECRET) else "MISSING_ENV"
+    return f"Bey Radar V6.7 (Flawless Build) is active! Env: {env_status} 🤖"
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
