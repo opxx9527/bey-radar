@@ -40,14 +40,14 @@ def init_db():
 init_db()
 
 # ======================
-# 🛡️ threads-scraper 專用抓取函式
+# 🛡️ threads-scraper 專用抓取函式 (精準錯誤捕獲版)
 # ======================
 def search_threads_via_scraper(query):
     if not RAPIDAPI_KEY:
-        print("⚠️ 缺少 RAPIDAPI_KEY，請先至 Render 設定環境變數")
-        return []
+        return [{"error": "缺少 RAPIDAPI_KEY 環境變數，請至 Render 後台設定。"}]
         
-    url = "[https://threads-scraper.p.rapidapi.com/search](https://threads-scraper.p.rapidapi.com/search)"
+    # 已修正：移除被 Markdown 污染的網址，還原成純字串
+    url = "https://threads-scraper.p.rapidapi.com/search"
     querystring = {"query": query, "type": "posts"}
     
     headers = {
@@ -58,6 +58,11 @@ def search_threads_via_scraper(query):
     results = []
     try:
         response = requests.get(url, headers=headers, params=querystring, timeout=12)
+        
+        # 精準檢查是否為 API Key 的認證問題 (401 或 403)
+        if response.status_code in [401, 403]:
+            return [{"error": f"RapidAPI 拒絕連線 (HTTP {response.status_code})。請確認您的 RAPIDAPI_KEY 是否填寫正確，且有在該 API 頁面按下 'Subscribe to Test' 激活 Free 計畫。"}]
+            
         data = response.json()
         
         # 廣泛適應所有可能的 Threads API JSON 回傳層級
@@ -74,8 +79,10 @@ def search_threads_via_scraper(query):
                 if isinstance(inner_data, dict):
                     posts = inner_data.get("results", []) or inner_data.get("posts", [])
         
-        # 如果依然沒有找到，儲存原始資料供除錯使用
+        # 如果連線成功但依然沒有找到任何貼文
         if not posts and isinstance(data, dict):
+            if "message" in data:
+                return [{"error": f"API 回傳錯誤訊息: {data['message']}"}]
             return [{"debug_raw": json.dumps(data)[:500]}]
 
         for p in posts[:5]:
@@ -86,10 +93,10 @@ def search_threads_via_scraper(query):
                 results.append({
                     "title": "Threads 即時情報",
                     "snippet": post_text,
-                    "url": f"[https://www.threads.net/post/](https://www.threads.net/post/){post_id}"
+                    "url": f"https://www.threads.net/post/{post_id}"
                 })
     except Exception as e:
-        print("解析失敗:", e)
+        return [{"error": f"網路連線或請求失敗: {str(e)}"}]
     
     return results
 
@@ -106,7 +113,7 @@ def parse_post_with_ai(title, snippet):
         response = model.generate_content(prompt)
         text = response.text.strip()
         
-        # 💡 使用特殊字串拼接法，徹底避免 Markdown 三個反引號截斷代碼
+        # 使用特殊字串拼接法，徹底避免 Markdown 三個反引號截斷代碼
         tb = '`' + '`' + '`'
         if text.startswith(tb + "json"):
             text = text[len(tb)+4 : -len(tb)].strip()
@@ -131,7 +138,7 @@ def scan_and_notify():
     for q in queries:
         results = search_threads_via_scraper(q)
         for r in results:
-            if "debug_raw" in r: 
+            if "debug_raw" in r or "error" in r: 
                 continue
             url = r["url"]
             
@@ -187,36 +194,10 @@ def handle_message(event):
     
     if "除錯" in user_text:
         raw_results = search_threads_via_scraper("台南戰鬥陀螺")
-        if not raw_results:
-            reply = "⚠️ 連線失敗，請檢查 Render 的 RAPIDAPI_KEY 是否填寫正確。"
-        elif "debug_raw" in raw_results[0]:
-            reply = f"⚙️ 【抓到原始結構！】請複製這段字給我：\n\n{raw_results[0]['debug_raw']}"
-        else:
-            debug_msgs = []
-            for idx, r in enumerate(raw_results[:3]):
-                debug_msgs.append(f"🔍【即時直連成功 {idx+1}】\n內容: {r['snippet']}\n網址: {r['url']}")
-            reply = "🛠️ 【相容模式生肉資料】\n\n" + "\n\n---\n\n".join(debug_msgs)
+        
+        # 1. 檢查是否發生特定的金鑰或網路錯誤
+        if raw_results and "error" in raw_results[0]:
+            reply = f"⚠️ 偵測到連線異常：\n{raw_results[0]['error']}"
             
-    elif "搜尋" in user_text:
-        count = scan_and_notify()
-        reply = f"🔍 掃描完畢！共發現 {count} 筆即時新賽事。"
-    else:
-        reply = "輸入「搜尋」手動掃描最新貼文，或輸入「除錯」確認當前直連狀態！"
-
-    line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
-
-# ======================
-# 定期排程端點
-# ======================
-@app.route("/cron/scan", methods=["GET"])
-def cron_scan():
-    count = scan_and_notify()
-    return f"Scanned. Found {count} items."
-
-@app.route("/", methods=["GET"])
-def home():
-    return "Bey Radar V5.4 (Anti-Truncation Edition) is active! 🤖"
-
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+        # 2. 檢查是否拿到未知的原始結構
+        elif raw_results and "debug_raw
