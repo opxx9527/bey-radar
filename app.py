@@ -18,7 +18,7 @@ app = Flask(__name__)
 LINE_CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET")
 LINE_CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY") 
-RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY") # 填入 RapidAPI 的金鑰
+RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY") 
 
 line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
@@ -39,14 +39,17 @@ def init_db():
 
 init_db()
 
+# 安全字串定義 (徹底避開 Render 關鍵字截斷機制)
+KEY_ERR = 'er' + 'ror'
+KEY_DBRAW = 'de' + 'bug_' + 'raw'
+
 # ======================
-# 🛡️ threads-scraper 專用抓取函式 (精準錯誤捕獲版)
+# 🛡️ threads-scraper 專用抓取函式
 # ======================
 def search_threads_via_scraper(query):
     if not RAPIDAPI_KEY:
-        return [{"error": "缺少 RAPIDAPI_KEY 環境變數，請至 Render 後台設定。"}]
+        return [{KEY_ERR: "缺少 RAPIDAPI_KEY 環境變數，請至 Render 後台設定。"}]
         
-    # 已修正：移除被 Markdown 污染的網址，還原成純字串
     url = "https://threads-scraper.p.rapidapi.com/search"
     querystring = {"query": query, "type": "posts"}
     
@@ -59,13 +62,11 @@ def search_threads_via_scraper(query):
     try:
         response = requests.get(url, headers=headers, params=querystring, timeout=12)
         
-        # 精準檢查是否為 API Key 的認證問題 (401 或 403)
         if response.status_code in [401, 403]:
-            return [{"error": f"RapidAPI 拒絕連線 (HTTP {response.status_code})。請確認您的 RAPIDAPI_KEY 是否填寫正確，且有在該 API 頁面按下 'Subscribe to Test' 激活 Free 計畫。"}]
+            return [{KEY_ERR: f"RapidAPI 拒絕連線 (HTTP {response.status_code})。請確認您的 RAPIDAPI_KEY 是否填寫正確，且有在該 API 頁面按下 'Subscribe to Test' 激活 Free 計畫。"}]
             
         data = response.json()
         
-        # 廣泛適應所有可能的 Threads API JSON 回傳層級
         posts = []
         if isinstance(data, list):
             posts = data
@@ -79,11 +80,10 @@ def search_threads_via_scraper(query):
                 if isinstance(inner_data, dict):
                     posts = inner_data.get("results", []) or inner_data.get("posts", [])
         
-        # 如果連線成功但依然沒有找到任何貼文
         if not posts and isinstance(data, dict):
             if "message" in data:
-                return [{"error": f"API 回傳錯誤訊息: {data['message']}"}]
-            return [{"debug_raw": json.dumps(data)[:500]}]
+                return [{KEY_ERR: f"API 回傳錯誤訊息: {data['message']}"}]
+            return [{KEY_DBRAW: json.dumps(data)[:500]}]
 
         for p in posts[:5]:
             post_text = p.get("text") or p.get("caption", {}).get("text", "") or p.get("snippet", "")
@@ -96,7 +96,7 @@ def search_threads_via_scraper(query):
                     "url": f"https://www.threads.net/post/{post_id}"
                 })
     except Exception as e:
-        return [{"error": f"網路連線或請求失敗: {str(e)}"}]
+        return [{KEY_ERR: f"網路連線或請求失敗: {str(e)}"}]
     
     return results
 
@@ -113,7 +113,6 @@ def parse_post_with_ai(title, snippet):
         response = model.generate_content(prompt)
         text = response.text.strip()
         
-        # 使用特殊字串拼接法，徹底避免 Markdown 三個反引號截斷代碼
         tb = '`' + '`' + '`'
         if text.startswith(tb + "json"):
             text = text[len(tb)+4 : -len(tb)].strip()
@@ -138,7 +137,7 @@ def scan_and_notify():
     for q in queries:
         results = search_threads_via_scraper(q)
         for r in results:
-            if "debug_raw" in r or "error" in r: 
+            if KEY_DBRAW in r or KEY_ERR in r: 
                 continue
             url = r["url"]
             
@@ -195,9 +194,45 @@ def handle_message(event):
     if "除錯" in user_text:
         raw_results = search_threads_via_scraper("台南戰鬥陀螺")
         
-        # 1. 檢查是否發生特定的金鑰或網路錯誤
-        if raw_results and "error" in raw_results[0]:
-            reply = f"⚠️ 偵測到連線異常：\n{raw_results[0]['error']}"
+        if raw_results and KEY_ERR in raw_results[0]:
+            reply = f"⚠️ 偵測到連線異常：\n{raw_results[0][KEY_ERR]}"
             
-        # 2. 檢查是否拿到未知的原始結構
-        elif raw_results and "debug_raw
+        elif raw_results and KEY_DBRAW in raw_results[0]:
+            reply = f"⚙️ 【已連線，但格式不符！】請將這段原始結構複製貼給我：\n\n{raw_results[0][KEY_DBRAW]}"
+            
+        elif not raw_results:
+            reply = "🟢 API 通道連線完全正常！但目前 Threads 上暫時沒有包含「台南戰鬥陀螺」關鍵字的即時個人貼文。"
+            
+        else:
+            debug_msgs = []
+            for idx, r in enumerate(raw_results[:3]):
+                debug_msgs.append(f"🔍【即時直連成功 {idx+1}】\n內容: {r['snippet']}\n網址: {r['url']}")
+            reply = "🛠️ 【相容模式生肉資料】\n\n" + "\n\n---\n\n".join(debug_msgs)
+            
+    elif "搜尋" in user_text:
+        test_run = search_threads_via_scraper("台南")
+        if test_run and KEY_ERR in test_run[0]:
+            reply = f"⚠️ 搜尋失敗！因為 API 連線目前異常：\n{test_run[0][KEY_ERR]}"
+        else:
+            count = scan_and_notify()
+            reply = f"🔍 掃描完畢！共發現 {count} 筆即時新賽事。"
+    else:
+        reply = "輸入「搜尋」手動掃描最新貼文，或輸入「除錯」確認當前直連狀態！"
+
+    line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
+
+# ======================
+# 定期排程端點
+# ======================
+@app.route("/cron/scan", methods=["GET"])
+def cron_scan():
+    count = scan_and_notify()
+    return f"Scanned. Found {count} items."
+
+@app.route("/", methods=["GET"])
+def home():
+    return "Bey Radar V5.5 (Anti-Truncation Pro) is active! 🤖"
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
