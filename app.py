@@ -165,6 +165,42 @@ def webhook():
 # ======================
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
-    text = event.message.text
+    user_text = event.message.text
     
-    if "除錯" in
+    # 這裡修正了斷行問題，完整保留判斷
+    if "除錯" in user_text:
+        raw_results = google_search_threads("台南 澀谷爆刃盃")
+        if not raw_results:
+            raw_results = google_search_threads("#台南戰鬥陀螺")
+            
+        if not raw_results:
+            reply = "⚠️ 糟糕！SerpApi 連精準關鍵字都搜不到，這代表 Google 還沒把這篇 Threads 收錄到搜尋索引中。"
+        else:
+            debug_msgs = []
+            for idx, r in enumerate(raw_results[:4]):
+                debug_msgs.append(f"🔍【原始抓取 {idx+1}】\n標題: {r['title']}\n片段: {r['snippet']}\n網址: {r['url']}")
+            reply = "🛠️ 【精準除錯模式：以下是 Google 挖深的生肉資料】\n\n" + "\n\n---\n\n".join(debug_msgs)
+            
+    elif "搜尋" in user_text:
+        count = scan_and_notify()
+        reply = f"🔍 Threads 掃描完畢！共找到 {count} 筆新賽事。"
+    else:
+        reply = "輸入「搜尋」尋找賽事，或輸入「除錯」查看原始抓取資料！"
+
+    line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
+
+# ======================
+# 排程與首頁端點
+# ======================
+@app.route("/cron/scan", methods=["GET"])
+def cron_scan():
+    count = scan_and_notify()
+    return f"Scanned Threads. Found {count} new items."
+
+@app.route("/", methods=["GET"])
+def home():
+    return "Bey Radar V3.7 (Syntax Robust 版) is alive! 🤖"
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
