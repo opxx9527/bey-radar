@@ -48,7 +48,6 @@ def google_search_threads(query):
         return []
         
     search_query = f"site:threads.net {query}"
-    # num=10 讓搜尋引擎挖深一點，避免被大店家的日常公告擠掉
     url = f"https://serpapi.com/search.json?q={search_query}&api_key={SERPAPI_KEY}&num=10&hl=zh-tw&gl=tw"
     
     try:
@@ -99,7 +98,6 @@ def scan_and_notify():
     conn = sqlite3.connect('seen_urls.db')
     c = conn.cursor()
 
-    # 納入最精準的精準關鍵字與標籤特徵
     queries = [
         "台南 澀谷爆刃盃",
         "台南 爆刃盃",
@@ -169,33 +167,4 @@ def webhook():
 def handle_message(event):
     text = event.message.text
     
-    if "除錯" in text:
-        # 除錯模式直接對準最精準的詞，抓 10 筆生肉
-        raw_results = google_search_threads("台南 澀谷爆刃盃")
-        
-        if not raw_results:
-            # 備用方案：搜尋標籤
-            raw_results = google_search_threads("#台南戰鬥陀螺")
-            
-        if not raw_results:
-            reply = "⚠️ 糟糕！SerpApi 連精準關鍵字都搜不到，這代表 Google 還沒把這篇 Threads 收錄到搜尋索引中（Threads 防爬蟲很常導致收錄延遲）。"
-        else:
-            debug_msgs = []
-            for idx, r in enumerate(raw_results[:4]): # 多顯示幾筆
-                debug_msgs.append(f"🔍【原始抓取 {idx+1}】\n標題: {r['title']}\n片段: {r['snippet']}\n網址: {r['url']}")
-            
-            reply = "🛠️ 【精準除錯模式：以下是 Google 挖深的生肉資料】\n\n" + "\n\n---\n\n".join(debug_msgs)
-            
-    elif "搜尋" in text:
-        count = scan_and_notify()
-        reply = f"🔍 Threads 掃描完畢！共找到 {count} 筆新賽事。"
-    else:
-        reply = "輸入「搜尋」尋找賽事，或輸入「除錯」查看原始抓取資料！"
-
-    line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
-
-# ======================
-# 排程與首頁端點
-# ======================
-@app.route("/cron/scan", methods=["GET"])
-def cron_scan():
+    if "除錯" in
