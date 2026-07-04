@@ -218,4 +218,51 @@ def webhook():
 # ======================
 @handler.add(MessageEvent, message=TextMessage) if handler else lambda x: x
 def handle_message(event):
-    user_text =
+    if not line_bot_api:
+        return
+
+    # ✨【已修復】確保 user_text 指派完整，不再懸空
+    user_text = event.message.text
+
+    if "除錯" in user_text:
+        if not LINE_CHANNEL_ACCESS_TOKEN or not LINE_CHANNEL_SECRET:
+            reply = "⚠️ 診斷回報：Render 後台缺少 LINE 的環境變數。"
+        else:
+            raw_results = search_threads_via_scraper("台南戰鬥陀螺")
+            if raw_results and KEY_ERR in raw_results[0]:
+                reply = f"⚠️ 偵測到連線異常：\n{raw_results[0][KEY_ERR]}"
+            elif raw_results and KEY_DBRAW in raw_results[0]:
+                reply = f"⚙️ 【已通關，結構不符】生肉結構：\n\n{raw_results[0][KEY_DBRAW]}"
+            elif not raw_results:
+                reply = "🟢 萬能通道與金鑰均正常！唯目前 Threads 查無公開貼文。"
+            else:
+                debug_msgs = []
+                for idx, r in enumerate(raw_results[:3]):
+                    debug_msgs.append(f"🔍【即時直連成功 {idx+1}】\n內容: {r['snippet']}\n網址: {r['url']}")
+                reply = "🛠️ 【萬能通道測試成功】\n\n" + "\n\n---\n\n".join(debug_msgs)
+            
+    elif "搜尋" in user_text:
+        test_run = search_threads_via_scraper("台南")
+        if test_run and KEY_ERR in test_run[0]:
+            reply = f"⚠️ 搜尋失敗：\n{test_run[0][KEY_ERR]}"
+        else:
+            count = scan_and_notify()
+            reply = f"🔍 掃描完畢！共發現 {count} 筆即時新賽事。"
+    else:
+        reply = "輸入「搜尋」手動掃描最新貼文，或輸入「除錯」確認當前直連狀態！"
+
+    line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
+
+@app.route("/cron/scan", methods=["GET"])
+def cron_scan():
+    count = scan_and_notify()
+    return f"Scanned. Found {count} items."
+
+@app.route("/", methods=["GET"])
+def home():
+    env_status = "OK" if (LINE_CHANNEL_ACCESS_TOKEN and LINE_CHANNEL_SECRET) else "MISSING_ENV"
+    return f"Bey Radar V6.0 (Syntax Verified) is active! Env: {env_status} 🤖"
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
