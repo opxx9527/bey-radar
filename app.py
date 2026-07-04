@@ -20,7 +20,6 @@ LINE_CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", "")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "") 
 RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY", "") 
 
-# 確保就算沒填，也是空字串而不是 None，避免 SDK 內部直接崩潰
 line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
 
@@ -131,7 +130,7 @@ def parse_post_with_ai(title, snippet):
     if not model:
         return None
     current_time = datetime.now().strftime('%Y-%m-%d %H:%M')
-    prompt = f"你是一個專門分析戰鬥陀螺比賽資訊的 AI 助手。現在時間是：{current_time}。請閱讀以下 Threads 貼文，標題：{title}，內容：{snippet}。請擷取比賽資訊，並以嚴格的 JSON 格式回傳，不要加入任何 markdown 標籤，只要純 JSON 字串。格式如下：{{\"is_valid_tournament\": true, \"match_time\": \"比賽時間\", \"location\": \"地點\", \"capacity\": \"人數\", \"fee\": \"報名費\", \"deadline\": \"報名截止時間\", \"is_expired\": false}}。"
+    prompt = f"你是一個專門分析戰鬥陀螺比賽資訊的 AI 助手。現在時間是：{current_time}。請閱讀以下 Threads 貼文，標題：{title}，內容：{snippet}。請擷取比賽資訊，並以嚴格的 JSON 格式回傳，不要加入 any markdown 標籤，只要純 JSON 字串。格式如下：{{\"is_valid_tournament\": true, \"match_time\": \"比賽時間\", \"location\": \"地點\", \"capacity\": \"人數\", \"fee\": \"報名費\", \"deadline\": \"報名截止時間\", \"is_expired\": false}}。"
     
     try:
         response = model.generate_content(prompt)
@@ -211,7 +210,7 @@ def webhook():
     return "OK"
 
 # ======================
-# LINE 訊息處理（回歸最原始相容寫法）
+# LINE 訊息處理
 # ======================
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
@@ -232,4 +231,31 @@ def handle_message(event):
                 debug_msgs = []
                 for idx, r in enumerate(raw_results[:3]):
                     debug_msgs.append(f"🔍【即時直連成功 {idx+1}】\n內容: {r['snippet']}\n網址: {r['url']}")
-                reply = "🛠️ 【萬能通道測試成功】\n\n" + "\n\n---\n\n
+                # ✨【已封口修正】字串正確閉合
+                reply = "🛠️ 【萬能通道測試成功】\n\n" + "\n\n---\n\n".join(debug_msgs)
+            
+    elif "搜尋" in user_text:
+        test_run = search_threads_via_scraper("台南")
+        if test_run and KEY_ERR in test_run[0]:
+            reply = f"⚠️ 搜尋失敗：\n{test_run[0][KEY_ERR]}"
+        else:
+            count = scan_and_notify()
+            reply = f"🔍 掃描完畢！共發現 {count} 筆即時新賽事。"
+    else:
+        reply = "輸入「搜尋」手動掃描最新貼文，或輸入「除錯」確認當前直連狀態！"
+
+    line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
+
+@app.route("/cron/scan", methods=["GET"])
+def cron_scan():
+    count = scan_and_notify()
+    return f"Scanned. Found {count} items."
+
+@app.route("/", methods=["GET"])
+def home():
+    env_status = "OK" if (LINE_CHANNEL_ACCESS_TOKEN and LINE_CHANNEL_SECRET) else "MISSING_ENV"
+    return f"Bey Radar V6.2 (String Terminated) is active! Env: {env_status} 🤖"
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
