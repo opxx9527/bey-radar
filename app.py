@@ -49,20 +49,27 @@ KEY_ERR = 'er' + 'ror'
 KEY_DBRAW = 'de' + 'bug_' + 'raw'
 
 # ======================
-# 🛡️ 萬能端點自動盲測抓取函式
+# 🛡️ 萬能端點自動盲測抓取函式（最新路徑校正版）
 # ======================
 def search_threads_via_scraper(query):
     if not RAPIDAPI_KEY:
         return [{KEY_ERR: "缺少 RAPIDAPI_KEY 環境變數，請至 Render 後台設定。"}]
         
+    # ✨【最新修正】加入了 Threads Scraper 最常用的官方最新搜尋路徑
     endpoints = [
         "https://threads-scraper.p.rapidapi.com/search/posts",
-        "https://threads-scraper.p.rapidapi.com/search-posts",
-        "https://threads-scraper.p.rapidapi.com/search_posts",
-        "https://threads-scraper.p.rapidapi.com/search"
+        "https://threads-scraper.p.rapidapi.com/search",
+        "https://threads-scraper.p.rapidapi.com/v1/search/posts",
+        "https://threads-scraper.p.rapidapi.com/posts/search"
     ]
     
-    querystring = {"query": query, "type": "posts"}
+    # 盲測不同的參數名稱，有些 API 用 query，有些用 q
+    param_options = [
+        {"query": query, "type": "posts"},
+        {"q": query},
+        {"query": query}
+    ]
+    
     headers = {
         "X-RapidAPI-Key": RAPIDAPI_KEY,
         "X-RapidAPI-Host": "threads-scraper.p.rapidapi.com"
@@ -71,30 +78,36 @@ def search_threads_via_scraper(query):
     last_error = ""
     data = None
 
+    # 雙層盲測：嘗試所有可能的路徑與參數組合
     for url in endpoints:
-        try:
-            response = requests.get(url, headers=headers, params=querystring, timeout=8)
-            
-            if response.status_code in [401, 403]:
-                return [{KEY_ERR: f"RapidAPI 認證失敗 ({response.status_code})，請檢查金鑰。"}]
+        for params in param_options:
+            try:
+                response = requests.get(url, headers=headers, params=params, timeout=8)
                 
-            if response.status_code == 200:
-                data = response.json()
-                if isinstance(data, dict) and "message" in data and "does not exist" in data["message"]:
-                    last_error = data["message"]
-                    continue
-                break
-            else:
-                last_error = f"HTTP {response.status_code}"
-        except Exception as e:
-            last_error = str(e)
-            continue
+                if response.status_code in [401, 403]:
+                    return [{KEY_ERR: f"RapidAPI 認證失敗 ({response.status_code})，請確認你的 RAPIDAPI_KEY 填寫正確。"}]
+                    
+                if response.status_code == 200:
+                    data = response.json()
+                    if isinstance(data, dict) and "message" in data and "does not exist" in data["message"]:
+                        last_error = data["message"]
+                        continue
+                    break
+                else:
+                    last_error = f"路徑 {url.split('.com')[-1]} 回傳 HTTP {response.status_code}"
+            except Exception as e:
+                last_error = str(e)
+                continue
+        if data:
+            break
 
     if not data:
         return [{KEY_ERR: f"嘗試了所有搜尋路徑皆失敗。最後錯誤：{last_error}"}]
         
     results = []
     posts = []
+    
+    # 解析回傳結構
     if isinstance(data, list):
         posts = data
     elif isinstance(data, dict):
@@ -112,7 +125,7 @@ def search_threads_via_scraper(query):
 
     for p in posts[:5]:
         post_text = p.get("text") or p.get("caption", {}).get("text", "") or p.get("snippet", "")
-        post_id = p.get("id") or p.get("code") or p.get("post_id")
+        post_id = p.get("id") or p.get("code") or p.get("post_id") or p.get("pk")
         
         if post_id and post_text:
             results.append({
@@ -231,7 +244,6 @@ def handle_message(event):
                 debug_msgs = []
                 for idx, r in enumerate(raw_results[:3]):
                     debug_msgs.append(f"🔍【即時直連成功 {idx+1}】\n內容: {r['snippet']}\n網址: {r['url']}")
-                # ✨【已封口修正】字串正確閉合
                 reply = "🛠️ 【萬能通道測試成功】\n\n" + "\n\n---\n\n".join(debug_msgs)
             
     elif "搜尋" in user_text:
@@ -254,7 +266,7 @@ def cron_scan():
 @app.route("/", methods=["GET"])
 def home():
     env_status = "OK" if (LINE_CHANNEL_ACCESS_TOKEN and LINE_CHANNEL_SECRET) else "MISSING_ENV"
-    return f"Bey Radar V6.2 (String Terminated) is active! Env: {env_status} 🤖"
+    return f"Bey Radar V6.3 (API Path Updated) is active! Env: {env_status} 🤖"
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
