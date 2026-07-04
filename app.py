@@ -55,7 +55,7 @@ def search_threads_via_scraper(query):
     if not RAPIDAPI_KEY:
         return [{KEY_ERR: "缺少 RAPIDAPI_KEY 環境變數，請至 Render 後台設定。"}]
         
-    # ✨【完全對齊】使用你提供的精準路徑
+    # 精準對齊用戶提供的 curl 門牌路徑
     url = "https://threads-scraper.p.rapidapi.com/api/v1/users/search"
     querystring = {"query": query}
     
@@ -97,7 +97,7 @@ def search_threads_via_scraper(query):
     if not users and isinstance(data, dict):
         return [{KEY_DBRAW: json.dumps(data)[:500]}]
 
-    # 轉化為雷達格式：將搜尋到的核心用戶建立監控錨點
+    # 將搜尋到的核心用戶建立監控錨點
     for u in users[:5]:
         username = u.get("username") or u.get("user", {}).get("username", "")
         full_name = u.get("full_name") or u.get("user", {}).get("full_name", "Threads 陀螺玩家")
@@ -132,7 +132,7 @@ def parse_post_with_ai(title, snippet):
             text = text[len(tb) : -len(tb)].strip()
             
         return json.loads(text)
-    except Exception as e:
+    except Exception as e: # ✨【已修復變數名稱】
         return None
 
 # ======================
@@ -142,7 +142,6 @@ def scan_and_notify():
     conn = sqlite3.connect('seen_urls.db')
     c = conn.cursor()
     
-    # 因為是搜尋用戶，我們改用最容易有陀螺比賽主辦者的關鍵字
     queries = ["戰鬥陀螺", "陀螺比賽"]
     new_tournaments = []
 
@@ -175,4 +174,37 @@ def scan_and_notify():
     if new_tournaments and LINE_CHANNEL_ACCESS_TOKEN:
         try: 
             line_bot_api.broadcast(TextSendMessage(text="🔥 發現最新 Threads 相關陀螺帳號！\n\n" + "\n\n---\n\n".join(new_tournaments)))
-        except Exception as
+        except Exception as e: 
+            pass
+            
+    return len(new_tournaments)
+
+# ======================
+# LINE Webhook 路由
+# ======================
+@app.route("/webhook", methods=["POST"])
+def webhook():
+    signature = request.headers.get("X-Line-Signature")
+    body = request.get_data(as_text=True)
+    try: 
+        handler.handle(body, signature)
+    except InvalidSignatureError: 
+        abort(400)
+    except Exception as e:
+        print(f"Handler 處理內部錯誤: {e}")
+        return "Internal Error", 500
+    return "OK"
+
+# ======================
+# LINE 訊息處理
+# ======================
+@handler.add(MessageEvent, message=TextMessage)
+def handle_message(event):
+    user_text = event.message.text
+
+    if "除錯" in user_text:
+        if not LINE_CHANNEL_ACCESS_TOKEN or not LINE_CHANNEL_SECRET:
+            reply = "⚠️ 診斷回報：Render 後台缺少 LINE 的環境變數。"
+        else:
+            raw_results = search_threads_via_scraper("戰鬥陀螺")
+            if
