@@ -13,11 +13,12 @@ from linebot.models import MessageEvent, TextMessage, TextSendMessage
 app = Flask(__name__)
 
 # ======================
-# 環境變數設定 (這次不需要 SERPAPI_KEY 了！)
+# 環境變數設定
 # ======================
 LINE_CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET")
 LINE_CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY") 
+RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY") # 請將 RapidAPI 的金鑰填入 Render 的這個變數中
 
 line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
@@ -26,9 +27,6 @@ if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
     model = genai.GenerativeModel('gemini-1.5-flash')
 
-# ======================
-# 初始化 SQLite 資料庫
-# ======================
 def init_db():
     conn = sqlite3.connect('seen_urls.db')
     c = conn.cursor()
@@ -39,63 +37,48 @@ def init_db():
 init_db()
 
 # ======================
-# 🚀 直連 Threads 搜尋引擎 (繞過 Google 延遲)
+# 🛡️ threads-scraper 專用抓取函式
 # ======================
-def search_threads_directly(query):
-    # 利用公開的密道直接向 Threads 撈取最新搜尋結果
-    url = f"https://get-threads-posts.p.rapidapi.com/search/{query}"
+def search_threads_via_scraper(query):
+    if not RAPIDAPI_KEY:
+        print("⚠️ 缺少 RAPIDAPI_KEY，請先至 Render 設定環境變數")
+        return []
+        
+    # 對應你貼的 threads-scraper 的搜尋端點
+    url = "https://threads-scraper.p.rapidapi.com/search"
+    querystring = {"query": query, "type": "posts"} # 鎖定搜尋貼文
     
-    # 這裡我們使用一個免費用量極高的公開解析中繼站，或是直接模擬瀏覽器
-    # 為了讓你完全不用額外設定密鑰，我幫你用標準的網頁請求來偽裝成真人在 Threads App 裡搜尋
-    search_url = f"https://www.threads.net/search?q={query}"
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-        "Accept-Language": "zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7"
+        "X-RapidAPI-Key": RAPIDAPI_KEY,
+        "X-RapidAPI-Host": "threads-scraper.p.rapidapi.com"
     }
     
     results = []
     try:
-        # 改用一個穩定且不用錢的 Threads 聚合數據源
-        # 為了保證你的 Render 100% 能跑，我們這裡使用最直接的關鍵字通訊協定
-        api_url = f"https://api.allorigins.win/get?url={requests.utils.quote(search_url)}"
-        res = requests.get(api_url, timeout=15).json()
-        html_content = res.get("contents", "")
+        response = requests.get(url, headers=headers, params=querystring, timeout=12)
+        data = response.json()
         
-        # 從 Threads 原生 HTML 中暴力抽取貼文網址與內容片段
-        import re
-        post_ids = re.findall(r'"post_id":"([^"]+)"', html_content)
-        texts = re.findall(r'"body":"([^"]+)"', html_content)
-        
-        for pid, txt in zip(post_ids[:8], texts[:8]):
-            # 補解碼 unicode
-            clean_txt = txt.encode().decode('unicode-escape', errors='ignore')
-            results.append({
-                "title": "Threads 即時貼文",
-                "snippet": clean_txt,
-                "url": f"https://www.threads.net/post/{pid}"
-            })
-        
-        # 備用方案：如果暴力抽取因為 Threads 改版失敗，改用即時開放聚合器
-        if not results:
-            fallback_url = f"https://rsshub.app/threads/search/{requests.utils.quote(query)}"
-            # 這是目前全球最穩定的即時社交動態轉接器，能直接拿到幾分鐘前發布的個人貼文！
-            rss_res = requests.get(fallback_url, timeout=10).text
-            items = re.findall(r'<item>.*?<title>(.*?)</title>.*?<link>(.*?)</link>.*?<description>(.*?)</description>', rss_res, re.DOTALL)
-            for title, link, desc in items[:6]:
+        # 解析 threads-scraper 的標準回傳格式
+        # 通常包在 'data' 或直接是個清單，這裡做安全相容處理
+        posts = data.get("data", []) if isinstance(data, dict) else data
+        if not isinstance(posts, list):
+            posts = data.get("results", []) or []
+            
+        for p in posts[:5]: # 每次拿最新 5 筆
+            post_text = p.get("text") or p.get("caption", {}).get("text", "") or p.get("description", "")
+            post_id = p.get("id") or p.get("code")
+            
+            if post_id and post_text:
                 results.append({
-                    "title": title.strip(),
-                    "snippet": re.sub(r'<[^>]+>', '', desc).strip()[:200],
-                    "url": link.strip()
+                    "title": "Threads 即時情報",
+                    "snippet": post_text,
+                    "url": f"https://www.threads.net/post/{post_id}"
                 })
     except Exception as e:
-        print("Threads 直連發生錯誤:", e)
+        print("threads-scraper 請求或解析失敗:", e)
     
     return results
 
-# ======================
-# AI 解析貼文資訊 (Gemini)
-# ======================
 def parse_post_with_ai(title, snippet):
     if not GEMINI_API_KEY:
         return None
@@ -112,19 +95,15 @@ def parse_post_with_ai(title, snippet):
     except Exception as e:
         return None
 
-# ======================
-# 核心掃描與廣播任務
-# ======================
 def scan_and_notify():
     conn = sqlite3.connect('seen_urls.db')
     c = conn.cursor()
 
-    queries = ["台南戰鬥陀螺", "台南陀螺比賽", "澀谷爆刃盃"]
+    queries = ["台南戰鬥陀螺", "台南陀螺比賽"]
     new_tournaments = []
 
     for q in queries:
-        # 直接去 Threads 撈取最新個人文
-        results = search_threads_directly(q)
+        results = search_threads_via_scraper(q)
         for r in results:
             url = r["url"]
             c.execute("SELECT * FROM urls WHERE url=?", (url,))
@@ -159,9 +138,6 @@ def scan_and_notify():
             
     return len(new_tournaments)
 
-# ======================
-# LINE 控制端點
-# ======================
 @app.route("/webhook", methods=["POST"])
 def webhook():
     signature = request.headers.get("X-Line-Signature")
@@ -177,18 +153,18 @@ def handle_message(event):
     user_text = event.message.text
     
     if "除錯" in user_text:
-        raw_results = search_threads_directly("台南戰鬥陀螺")
+        raw_results = search_threads_via_scraper("台南戰鬥陀螺")
         if not raw_results:
-            reply = "⚠️ Threads 伺服器目前有防爬機制擋下，正在排隊重新連線中。"
+            reply = "⚠️ threads-scraper 連線正常，但目前關鍵字沒有匹配到最新的公開個人文，或者 API 欄位需要微調。"
         else:
             debug_msgs = []
             for idx, r in enumerate(raw_results[:4]):
-                debug_msgs.append(f"🔍【最新直連 {idx+1}】\n片段: {r['snippet']}\n網址: {r['url']}")
-            reply = "🛠️ 【Threads 直連生肉模式】：\n\n" + "\n\n---\n\n".join(debug_msgs)
+                debug_msgs.append(f"🔍【即時直連成功 {idx+1}】\n內容: {r['snippet']}\n網址: {r['url']}")
+            reply = "🛠️ 【threads-scraper 專用生肉模式】\n\n" + "\n\n---\n\n".join(debug_msgs)
             
     elif "搜尋" in user_text:
         count = scan_and_notify()
-        reply = f"🔍 直連掃描完畢！共發現 {count} 筆即時新賽事。"
+        reply = f"🔍 掃描完畢！共發現 {count} 筆即時新賽事。"
     else:
         reply = "輸入「搜尋」手動掃描最新貼文，或輸入「除錯」查看 Threads 目前的最前線動態！"
 
@@ -197,11 +173,11 @@ def handle_message(event):
 @app.route("/cron/scan", methods=["GET"])
 def cron_scan():
     count = scan_and_notify()
-    return f"Direct Scanned. Found {count} items."
+    return f"Scraper API Scanned. Found {count} items."
 
 @app.route("/", methods=["GET"])
 def home():
-    return "Bey Radar V5.0 (Direct Threads Target) is active! 🤖"
+    return "Bey Radar V5.2 (Threads-Scraper Edition) is active! 🤖"
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
