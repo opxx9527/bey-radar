@@ -89,7 +89,7 @@ def parse_post_with_ai(title, snippet):
     
     JSON 格式定義：
     {{
-      "is_valid_tournament": true/false, (這是不是一個實際的比賽或報名貼文？如果是閒聊請填 false)
+      "is_valid_tournament": true/false, (只要貼文看起來像是有玩家在揪團打陀螺、辦私下比賽或交流賽，就請填 true，不要太嚴格)
       "match_time": "比賽時間 (若無則填'未提供')",
       "location": "地點 (若無則填'未提供')",
       "capacity": "人數 (若無則填'未提供')",
@@ -122,8 +122,14 @@ def scan_and_notify():
     conn = sqlite3.connect('seen_urls.db')
     c = conn.cursor()
 
-    # 針對台南玩家的關鍵字
-    queries = ["台南 戰鬥陀螺", "台南 陀螺 比賽"]
+    # 擴充針對台南玩家的關鍵字
+    queries = [
+        "台南 戰鬥陀螺", 
+        "台南 戰陀", 
+        "台南 Beyblade X", 
+        "台南 BXB",
+        "台南 陀螺 比賽"
+    ]
     
     new_tournaments = []
 
