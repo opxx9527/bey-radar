@@ -13,7 +13,7 @@ from linebot.models import MessageEvent, TextMessage, ImageMessage, TextSendMess
 app = Flask(__name__)
 
 # ======================
-# 環境變數設定
+# 環境變數設定（完全從 Render 後台讀取，安全第一）
 # ======================
 LINE_CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET", "")
 LINE_CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", "")
@@ -48,7 +48,7 @@ KEY_ERR = 'er' + 'ror'
 # ======================
 def google_official_search(query_word):
     if not GOOGLE_SEARCH_API_KEY or not GOOGLE_CX:
-        return [{KEY_ERR: "Missing Google Search API Key or CX"}]
+        return [{KEY_ERR: "錯誤：Render 後台缺少 GOOGLE_SEARCH_API_KEY 或 GOOGLE_CX 變數"}]
         
     url = "https://www.googleapis.com/customsearch/v1"
     params = {
@@ -63,7 +63,7 @@ def google_official_search(query_word):
     try:
         response = requests.get(url, params=params, timeout=10)
         if response.status_code != 200:
-            return [{KEY_ERR: f"Google API Error HTTP: {response.status_code}"}]
+            return [{KEY_ERR: f"Google API 報錯 HTTP: {response.status_code}，代表填入的金鑰格式不正確。"}]
         data = response.json()
         for item in data.get("items", []):
             link = item.get("link", "")
@@ -186,7 +186,7 @@ def cron_scan():
 
 @app.route("/", methods=["GET"])
 def home():
-    return "Bey Radar V11.3 Clean Version Active"
+    return "Bey Radar V11.3 Standard Active"
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
