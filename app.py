@@ -19,7 +19,7 @@ LINE_CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET", "")
 LINE_CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", "")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "") 
 
-# ✨ 新增：Google 官方搜尋金鑰
+# Google 官方搜尋金鑰
 GOOGLE_SEARCH_API_KEY = os.environ.get("GOOGLE_SEARCH_API_KEY", "")
 GOOGLE_CX = os.environ.get("GOOGLE_CX", "")
 
@@ -57,10 +57,7 @@ def google_official_search(query_word):
     if not GOOGLE_SEARCH_API_KEY or not GOOGLE_CX:
         return [{KEY_ERR: "缺少 GOOGLE_SEARCH_API_KEY 或 GOOGLE_CX 環境變數，請至 Render 後台設定。"}]
         
-    # 官方終端點網址
     url = "https://www.googleapis.com/customsearch/v1"
-    
-    # 參數設定：限制只搜尋 threads.net 內文，且日期限定為最近一週 (dateRestrict='w')
     params = {
         "key": GOOGLE_SEARCH_API_KEY,
         "cx": GOOGLE_CX,
@@ -82,7 +79,6 @@ def google_official_search(query_word):
             link = item.get("link", "")
             snippet = item.get("snippet", "")
             
-            # 確保撈到的是真正的貼文路徑
             if "threads.net/post/" in link or "threads.net/@" in link:
                 results.append({
                     "snippet": snippet,
@@ -129,10 +125,8 @@ def run_real_sea_patrol():
     conn = sqlite3.connect('seen_urls.db')
     c = conn.cursor()
     
-    # 丟出對普通路人最殺傷力的組合關鍵字
     raw_posts = google_official_search("台南 戰鬥陀螺 比賽")
     
-    # 如果觸發錯誤回報
     if raw_posts and KEY_ERR in raw_posts[0]:
         return raw_posts[0][KEY_ERR], -1
         
@@ -185,69 +179,4 @@ def webhook():
 def handle_message(event):
     user_text = event.message.text
 
-    if "除錯" in user_text:
-        if not GOOGLE_SEARCH_API_KEY or not GOOGLE_CX:
-            reply = "⚠️ 診斷回報：缺少 Google 官方 API 金鑰，請至 Render 後台設定 GOOGLE_SEARCH_API_KEY 與 GOOGLE_CX！"
-        else:
-            test_run = google_official_search("台南")
-            if test_run and KEY_ERR in test_run[0]:
-                reply = f"⚠️ Google API 連線失敗：\n{test_run[0][KEY_ERR]}"
-            else:
-                reply = f"🟢 官方海巡引擎完全正常！目前已成功對接 Google 數據庫，隨時可進行無阻擋全網海巡。已預載 {len(test_run)} 條潛在 Threads 目標。"
-                
-    elif "搜尋" in user_text or "海巡" in user_text:
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="🛸 正在透過 Google 官方引擎全網搜捕普通路人的 Threads 貼文，請稍候..."))
-        status, count = run_real_sea_patrol()
-        if count == -1:
-            line_bot_api.broadcast(TextSendMessage(text=f"❌ 海巡失敗，原因：\n{status}"))
-        else:
-            line_bot_api.broadcast(TextSendMessage(text=f"📊 海巡報告：官方通道審查完畢，本次共捕獲 {count} 筆台南賽事情報！"))
-        return
-    else:
-        reply = "輸入「海巡」啟動官方全網貼文搜捕，或「直接傳送比賽海報照片」讓 AI 現場解析！"
-
-    line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
-
-# ======================
-# 處理 LINE 圖片訊息（保留海報現場分析功能）
-# ======================
-@handler.add(MessageEvent, message=ImageMessage)
-def handle_image(event):
-    message_id = event.message.id
-    line_bot_api.reply_message(event.reply_token, TextSendMessage(text="📸 收到海報圖片！正在啟動 Gemini 現場解讀，請稍候..."))
-    try:
-        message_content = line_bot_api.get_message_content(message_id)
-        image_bytes = b""
-        for chunk in message_content.iter_content(): image_bytes += chunk
-            
-        current_time = datetime.now().strftime('%Y-%m-%d %H:%M')
-        prompt = (
-            f"現在時間是：{current_time}。請仔細閱讀這張戰鬥陀螺比賽海報的照片，"
-            f"將照片中所有的繁體中文賽事資訊全部辨識並挖掘出來。"
-            f"請用清晰、整齊的條列式繁體中文回覆我以下資訊：\n"
-            f"1. 比賽主辦方/店名：\n"
-            f"2. 比賽日期與時間：\n"
-            f"3. 比賽精確地點：\n"
-            f"4. 參賽資格/年齡/組別限制：\n"
-            f"5. 報名費用：\n"
-            f"6. 報名截止時間或方式：\n"
-            f"7. 備註：\n\n"
-            f"請直接依序條列，如果照片中完全沒有提到某項，請寫『海報未提及』。"
-        )
-        response = model.generate_content([{"mime_type": "image/jpeg", "data": image_bytes}, prompt])
-        line_bot_api.broadcast(TextSendMessage(text=f"🎯 【AI 海報現場解析報告】\n\n{response.text.strip()}"))
-    except Exception as e:
-        line_bot_api.broadcast(TextSendMessage(text=f"❌ 海報解析失敗：{str(e)}"))
-
-@app.route("/cron/scan", methods=["GET"])
-def cron_scan():
-    status, count = run_real_sea_patrol()
-    return f"Patrol done. Found {count} items. Status: {status}"
-
-@app.route("/", methods=["GET"])
-def home():
-    return "Bey Radar V11.0 (Official API Driven) is active! 🚀"
-
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    if "
