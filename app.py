@@ -13,14 +13,13 @@ from linebot.models import MessageEvent, TextMessage, TextSendMessage
 app = Flask(__name__)
 
 # ======================
-# 環境變數設定（安全載入版）
+# 環境變數設定
 # ======================
 LINE_CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET")
 LINE_CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY") 
 RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY") 
 
-# 閹割版安全防護：避免環境變數空白導致 Flask 閃退
 try:
     line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN) if LINE_CHANNEL_ACCESS_TOKEN else None
     handler = WebhookHandler(LINE_CHANNEL_SECRET) if LINE_CHANNEL_SECRET else None
@@ -219,40 +218,4 @@ def webhook():
 # ======================
 @handler.add(MessageEvent, message=TextMessage) if handler else lambda x: x
 def handle_message(event):
-    user_text = event.message.text
-    
-    # 額外安全檢查
-    if not line_bot_api:
-        return
-
-    if "除錯" in user_text:
-        # 幫忙在大螢幕自我診斷變數
-        if not LINE_CHANNEL_ACCESS_TOKEN or not LINE_CHANNEL_SECRET:
-            reply = "⚠️ 診斷回報：Render 後台缺少 LINE 的環境變數，請確認 LINE_CHANNEL_ACCESS_TOKEN 與 LINE_CHANNEL_SECRET 是否已設定。"
-        else:
-            raw_results = search_threads_via_scraper("台南戰鬥陀螺")
-            if raw_results and KEY_ERR in raw_results[0]:
-                reply = f"⚠️ 偵測到連線異常：\n{raw_results[0][KEY_ERR]}"
-            elif raw_results and KEY_DBRAW in raw_results[0]:
-                reply = f"⚙️ 【已通關，結構不符】生肉結構：\n\n{raw_results[0][KEY_DBRAW]}"
-            elif not raw_results:
-                reply = "🟢 萬能通道與金鑰均正常！唯目前 Threads 查無公開貼文。"
-            else:
-                debug_msgs = []
-                for idx, r in enumerate(raw_results[:3]):
-                    debug_msgs.append(f"🔍【即時直連成功 {idx+1}】\n內容: {r['snippet']}\n網址: {r['url']}")
-                reply = "🛠️ 【萬能通道測試成功】\n\n" + "\n\n---\n\n".join(debug_msgs)
-            
-    elif "搜尋" in user_text:
-        test_run = search_threads_via_scraper("台南")
-        if test_run and KEY_ERR in test_run[0]:
-            reply = f"⚠️ 搜尋失敗：\n{test_run[0][KEY_ERR]}"
-        else:
-            count = scan_and_notify()
-            reply = f"🔍 掃描完畢！共發現 {count} 筆即時新賽事。"
-    else:
-        reply = "輸入「搜尋」手動掃描最新貼文，或輸入「除錯」確認當前直連狀態！"
-
-    line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
-
-@app.
+    user_text =
