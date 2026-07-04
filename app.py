@@ -9,7 +9,7 @@ import google.generativeai as genai
 
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
-from linebot.models import MessageEvent, TextMessage, TextSendMessage
+from linebot.models import MessageEvent, TextMessage, ImageMessage, TextSendMessage
 
 app = Flask(__name__)
 
@@ -46,77 +46,80 @@ def init_db():
 init_db()
 
 # ======================
-# 🌊 真正跨過 API 限制的「全網貼文海巡探測器」
+# 🌊 全網貼文海巡探測器 (包含圖片網址抓取嘗試)
 # ======================
 def search_all_threads_posts(query_word):
-    """
-    利用公開搜尋入口，繞過 Scraper 只能搜用戶的限制，
-    直接對全網公開的 Threads 貼文內文進行地毯式搜索。
-    """
-    # 建立一個模擬真實瀏覽器的 Header，直接向公開網絡檢索貼文
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-        "Accept-Language": "zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
-    
-    # 使用開放式結構入口，將關鍵字（如：台南 戰鬥陀螺 比賽）丟進去
     search_url = f"https://www.google.com/search?q=site:threads.net+{query_word}&tbs=qdr:w" 
-    # 💡 tbs=qdr:w 代表嚴格限制「只爬取最近 1 週內」的最新鮮貼文，完美符合雷達即時監控！
-    
     results = []
     try:
         response = requests.get(search_url, headers=headers, timeout=10)
-        if response.status_code != 200:
-            return results
-            
+        if response.status_code != 200: return results
         html = response.text
         
-        # 使用正規表達式，把所有夾帶 threads.net/post/ 的路人貼文代碼全部肉眼扒出來
         matches = re.findall(r'threads\.net/post/([^"&?\s>/]+)', html)
-        
-        # 抓取畫面上的文字片段（路人們發的內文摘要）
         snippets = re.findall(r'<div[^>]*class="[^"]*(?:BNeawe|kvH3be|jSuv6c)[^"]*"[^>]*>(.*?)</div>', html)
         
+        # 嘗試從搜尋頁中捞取潛在的圖片縮圖
+        img_urls = re.findall(r'src="(https://encrypted-tbn[^"]+)"', html)
+        
         unique_matches = list(set(matches))
-        for idx, post_code in enumerate(unique_matches[:10]): # 每次精選前 10 筆最新路人動態
+        for idx, post_code in enumerate(unique_matches[:10]):
             post_url = f"https://www.threads.net/post/{post_code}"
-            
-            # 建立大數據摘要
-            snippet_text = snippets[idx] if idx < len(snippets) else "點擊連結查看路人詳細貼文內容"
-            # 移除 html 標籤
+            snippet_text = snippets[idx] if idx < len(snippets) else "點擊連結查看詳細內容"
             snippet_text = re.sub(r'<[^>]+>', '', snippet_text)
+            
+            # 如果有抓到對應的縮圖，就帶給 AI 一起看
+            associated_img = img_urls[idx] if idx < len(img_urls) else None
             
             results.append({
                 "snippet": snippet_text,
-                "url": post_url
+                "url": post_url,
+                "img_url": associated_img
             })
     except Exception as e:
         print(f"全網搜捕異常: {e}")
-        
     return results
 
 # ======================
-# AI 嚴格審查機制 (Gemini)
+# AI 視覺與語意雙重審查機制 (海巡專用)
 # ======================
-def parse_post_with_ai(snippet):
+def parse_post_with_ai(snippet, img_url=None):
     if not model: return None
     current_time = datetime.now().strftime('%Y-%m-%d %H:%M')
     
     prompt = (
-        f"你是一個專門抓取地方比賽的 AI 雷達。現在時間是：{current_time}。\n"
-        f"請審查以下這段從 Threads 全網撈到的路人貼文片段：\n"
-        f"「{snippet}」\n\n"
-        f"【審查任務】\n"
-        f"1. 這是不是一個舉辦在台灣「台南」的戰鬥陀螺比賽、店家賽、俱樂部或聚會？\n"
-        f"2. 不管它是官方公告，還是「一般個人路人帳號」發的日常碎碎念（例如：這週要去台南打陀螺、台南某某店有陀螺賽），只要確認台南有活動，就算符合！\n"
-        f"3. 如果符合，請以嚴格的 JSON 格式回傳（絕對不要 markdown 標籤，只要純字串）。\n"
-        f"格式：{{\"is_tainan_bey\": true, \"match_time\": \"活動時間\", \"location\": \"地點\", \"details\": \"活動簡述\"}}\n"
-        f"4. 如果內容完全不符合，或根本不是台南的陀螺比賽，請回傳：{{\"is_tainan_bey\": false}}"
+        f"你是一個具備視覺與文字辨識能力的戰鬥陀螺比賽雷達 AI。現在時間是：{current_time}。\n"
+        f"請審查以下這段從 Threads 全網撈到的貼文資料：\n"
+        f"【文字內容】：「{snippet}」\n"
     )
     
+    contents = []
+    # 如果海巡有撈到潛在的貼文海報圖片，就把圖片下載並餵給 Gemini 
+    if img_url:
+        prompt += "【附帶海報圖片】我已經附上了這篇貼文對應的活動海報縮圖，請同時辨識圖片中的文字。\n"
+        try:
+            img_response = requests.get(img_url, timeout=5)
+            if img_response.status_code == 200:
+                contents.append({"mime_type": "image/jpeg", "data": img_response.content})
+        except Exception:
+            pass
+            
+    prompt += (
+        f"\n【任務指令】\n"
+        f"1. 判斷這是不是舉辦在台灣「台南」的戰鬥陀螺比賽或聚會活動。\n"
+        f"2. 請綜合文字與海報圖片中的所有資訊，提煉出最完整的比賽細節。\n"
+        f"3. 必須以嚴格的 JSON 格式回傳（絕對不要加上 ```json 這樣的 markdown 標籤，只要純字串）。\n"
+        f"格式：{{\"is_tainan_bey\": true, \"match_time\": \"活動時間\", \"location\": \"地點\", \"details\": \"活動簡述（包含組別或報名費等）\"}}\n"
+        f"4. 如果不是台南的陀螺比賽，請回傳：{{\"is_tainan_bey\": false}}"
+    )
+    
+    contents.append(prompt)
+    
     try:
-        response = model.generate_content(prompt)
+        response = model.generate_content(contents)
         text = response.text.strip()
         tb = '`' + '`' + '`'
         if text.startswith(tb + "json"): text = text[len(tb)+4 : -len(tb)].strip()
@@ -126,28 +129,21 @@ def parse_post_with_ai(snippet):
         return None
 
 # ======================
-# 真·全網海巡核心主邏輯
+# 核心：海巡主邏輯
 # ======================
 def run_real_sea_patrol():
     conn = sqlite3.connect('seen_urls.db')
     c = conn.cursor()
-    
-    # 直接用最暴力的「路人組合關鍵字」丟進去全網肉搜貼文
     raw_posts = search_all_threads_posts("台南+戰鬥陀螺+比賽")
-    
     new_finds = []
     
     for p in raw_posts:
         url = p["url"]
-        
-        # 去重
         c.execute("SELECT * FROM urls WHERE url=?", (url,))
         if c.fetchone() is not None: continue
-        
         c.execute("INSERT INTO urls (url) VALUES (?)", (url,))
         
-        # 讓 AI 鑑定路人的碎碎念
-        info = parse_post_with_ai(p["snippet"])
+        info = parse_post_with_ai(p["snippet"], p.get("img_url"))
         
         if info and info.get("is_tainan_bey"):
             msg = (
@@ -164,10 +160,9 @@ def run_real_sea_patrol():
 
     if new_finds and LINE_CHANNEL_ACCESS_TOKEN:
         try:
-            line_bot_api.broadcast(TextSendMessage(text="🌊 【真·全網路人貼文海巡】回報！\n經 AI 過濾，發現以下最新台南賽事蛛絲馬跡：\n\n" + "\n\n---\n\n".join(new_finds)))
+            line_bot_api.broadcast(TextSendMessage(text="🌊 【真·全網絡人貼文海巡】回報！\n經 AI 視覺與語意篩選，發現最新賽事：\n\n" + "\n\n---\n\n".join(new_finds)))
         except Exception:
             pass
-            
     return len(new_finds)
 
 # ======================
@@ -182,31 +177,12 @@ def webhook():
     except Exception: return "Internal Error", 500
     return "OK"
 
+# ======================
+# 1. 處理 LINE 文字訊息
+# ======================
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
     user_text = event.message.text
 
     if "除錯" in user_text:
-        reply = "🟢 全網路人貼文海巡引擎運作中！當前策略：直接肉搜全 Threads 一週內含有「台南 戰鬥陀螺 比賽」的任何路人公開貼文，並由 Gemini 進行語意篩選。"
-    elif "搜尋" in user_text or "海巡" in user_text:
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="🛸 正在全網搜捕所有普通路人的 Threads 碎碎念貼文，請稍候..."))
-        count = run_real_sea_patrol()
-        line_bot_api.broadcast(TextSendMessage(text=f"📊 海巡報告：全網普通路人貼文審查完畢，本次共捕獲 {count} 筆台南賽事情報！"))
-        return
-    else:
-        reply = "輸入「海巡」立刻啟動全網普通路人貼文搜捕！"
-
-    line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
-
-@app.route("/cron/scan", methods=["GET"])
-def cron_scan():
-    count = run_real_sea_patrol()
-    return f"Patrol done. Found {count} items."
-
-@app.route("/", methods=["GET"])
-def home():
-    return "Bey Radar V9.0 (Universal Post Patrol) is active! 🌊"
-
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+        reply = "🟢 海巡與多模態視覺引擎就緒！\n1
