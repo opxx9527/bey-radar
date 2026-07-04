@@ -15,18 +15,14 @@ app = Flask(__name__)
 # ======================
 # 環境變數設定
 # ======================
-LINE_CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET")
-LINE_CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY") 
-RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY") 
+LINE_CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET", "")
+LINE_CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", "")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "") 
+RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY", "") 
 
-try:
-    line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN) if LINE_CHANNEL_ACCESS_TOKEN else None
-    handler = WebhookHandler(LINE_CHANNEL_SECRET) if LINE_CHANNEL_SECRET else None
-except Exception as e:
-    print(f"LINE SDK 初始化失敗: {e}")
-    line_bot_api = None
-    handler = None
+# 確保就算沒填，也是空字串而不是 None，避免 SDK 內部直接崩潰
+line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
+handler = WebhookHandler(LINE_CHANNEL_SECRET)
 
 if GEMINI_API_KEY:
     try:
@@ -190,7 +186,7 @@ def scan_and_notify():
     conn.commit()
     conn.close()
 
-    if new_tournaments and line_bot_api:
+    if new_tournaments and LINE_CHANNEL_ACCESS_TOKEN:
         try: 
             line_bot_api.broadcast(TextSendMessage(text="🔥 發現最新 Threads 賽事！\n\n" + "\n\n---\n\n".join(new_tournaments)))
         except Exception as e: 
@@ -203,25 +199,22 @@ def scan_and_notify():
 # ======================
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    if not handler:
-        return "Webhook Handler not initialized", 500
     signature = request.headers.get("X-Line-Signature")
     body = request.get_data(as_text=True)
     try: 
         handler.handle(body, signature)
     except InvalidSignatureError: 
         abort(400)
+    except Exception as e:
+        print(f"Handler 處理內部錯誤: {e}")
+        return "Internal Error", 500
     return "OK"
 
 # ======================
-# LINE 訊息處理
+# LINE 訊息處理（回歸最原始相容寫法）
 # ======================
-@handler.add(MessageEvent, message=TextMessage) if handler else lambda x: x
+@handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
-    if not line_bot_api:
-        return
-
-    # ✨【已修復】確保 user_text 指派完整，不再懸空
     user_text = event.message.text
 
     if "除錯" in user_text:
@@ -239,30 +232,4 @@ def handle_message(event):
                 debug_msgs = []
                 for idx, r in enumerate(raw_results[:3]):
                     debug_msgs.append(f"🔍【即時直連成功 {idx+1}】\n內容: {r['snippet']}\n網址: {r['url']}")
-                reply = "🛠️ 【萬能通道測試成功】\n\n" + "\n\n---\n\n".join(debug_msgs)
-            
-    elif "搜尋" in user_text:
-        test_run = search_threads_via_scraper("台南")
-        if test_run and KEY_ERR in test_run[0]:
-            reply = f"⚠️ 搜尋失敗：\n{test_run[0][KEY_ERR]}"
-        else:
-            count = scan_and_notify()
-            reply = f"🔍 掃描完畢！共發現 {count} 筆即時新賽事。"
-    else:
-        reply = "輸入「搜尋」手動掃描最新貼文，或輸入「除錯」確認當前直連狀態！"
-
-    line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
-
-@app.route("/cron/scan", methods=["GET"])
-def cron_scan():
-    count = scan_and_notify()
-    return f"Scanned. Found {count} items."
-
-@app.route("/", methods=["GET"])
-def home():
-    env_status = "OK" if (LINE_CHANNEL_ACCESS_TOKEN and LINE_CHANNEL_SECRET) else "MISSING_ENV"
-    return f"Bey Radar V6.0 (Syntax Verified) is active! Env: {env_status} 🤖"
-
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+                reply = "🛠️ 【萬能通道測試成功】\n\n" + "\n\n---\n\n
